@@ -1,0 +1,153 @@
+---
+title: Metadata Scoping
+description: Per-user, per-thread, per-tenant access scoping via user-defined metadata
+icon: filter
+---
+
+# Metadata Scoping
+
+Attach user-defined key/value metadata to every memory, then use it to **scope
+access** — filter searches to one user, one thread, one tenant, one session.
+The client auto-injects the scope on every write and auto-applies it as a
+filter on every read, so scoping cannot be bypassed accidentally.
+
+<CardGroup cols={2}>
+  <Card title="Row-level isolation" icon="shield">
+    A scoped client only sees its own rows on a shared DB.
+  </Card>
+  <Card title="Configurable indexed keys" icon="bolt">
+    Declare hot keys (e.g. `user_id`, `thread_id`) to pre-filter in
+    O(matching) instead of O(total).
+  </Card>
+  <Card title="Per-call override" icon="pen-to-square">
+    Callers can override the default scope on a per-key basis when needed.
+  </Card>
+  <Card title="Generic shape" icon="sliders">
+    Scope is any `{key: JSON-value}` map — use any keys that fit your model.
+  </Card>
+</CardGroup>
+
+## Quick start
+
+Pass `scope` at construction time. Every subsequent `store_*` tags the memory
+with the scope keys, and every subsequent `search` filters by them.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+
+alice = MembrainClient(
+    scope={"user_id": "alice"},
+    indexed_metadata_keys=["user_id", "thread_id"],
+)
+alice.store_fact("alice likes rust")
+alice.store_fact("alice likes python")
+
+# Scoped read: only alice's rows come back, even if bob's memories live in
+# the same DB.
+results = alice.search("likes")
+```
+
+```javascript JavaScript
+import { MembrainClient } from "membrain";
+
+const alice = new MembrainClient(
+  { storage: { path: "./db", indexed_metadata_keys: ["user_id", "thread_id"] } },
+  { scope: { user_id: "alice" } },
+);
+alice.storeFact("alice likes rust");
+alice.storeFact("alice likes python");
+const results = alice.search("likes");
+```
+</CodeGroup>
+
+## Scope semantics
+
+- **Write path** — on every store, default-scope keys absent from the
+  per-call `metadata` dict are inserted; keys present in both keep the
+  per-call value (per-call wins on conflict).
+- **Read path** — on every search, default-scope keys absent from the
+  per-call `filters.metadata` dict are added; per-call values win on
+  conflict.
+- **Empty scope** — `scope={}` or omitting it makes the client behave
+  exactly as before.
+
+## Indexed metadata keys
+
+By default, metadata filtering runs as a *post-filter*: the query fetches
+candidates and discards the ones that don't match. For selective filters on
+large corpora (e.g. `user_id = "alice"` out of millions of rows) this is
+slow.
+
+Declare hot keys via `indexed_metadata_keys` and the storage layer builds a
+secondary index keyed by `(metadata_key, canonical_value, memory_id)`. Filter
+queries constraining only indexed keys pre-filter to the candidate set
+*before* hitting the vector index — O(matching) instead of O(total).
+
+Non-indexed keys still filter correctly via the residual post-filter path.
+
+<CodeGroup>
+```python Python
+client = MembrainClient(
+    scope={"tenant_id": "acme"},
+    # Pre-filter on tenant_id and thread_id; post-filter on anything else.
+    indexed_metadata_keys=["tenant_id", "thread_id"],
+)
+```
+
+```javascript JavaScript
+const client = new MembrainClient(
+  {
+    storage: {
+      path: "./db",
+      indexed_metadata_keys: ["tenant_id", "thread_id"],
+    },
+  },
+  { scope: { tenant_id: "acme" } },
+);
+```
+</CodeGroup>
+
+## Per-call override
+
+Passing `metadata` on a store call or `filters.metadata` on a search call
+overrides the default scope for those keys only.
+
+<CodeGroup>
+```python Python
+client = MembrainClient(scope={"user_id": "alice"})
+
+# Per-call override: this row is tagged as bob, not alice.
+client.store_fact("shared context", metadata={"user_id": "bob"})
+
+# Explicit search filter overrides alice's default scope too.
+bob_rows = client.search("shared", filters={"metadata": {"user_id": "bob"}})
+```
+
+```javascript JavaScript
+const client = new MembrainClient(undefined, {
+  scope: { user_id: "alice" },
+});
+client.storeFact("shared context", 0.8, undefined, { user_id: "bob" });
+const bobRows = client.search("shared", 10, { metadata: { user_id: "bob" } });
+```
+</CodeGroup>
+
+## Common patterns
+
+- **Per-user isolation** — `scope={"user_id": user.id}` with
+  `indexed_metadata_keys=["user_id"]`.
+- **Per-thread context** — `scope={"thread_id": thread.id}` — each chat gets
+  its own slice of memory.
+- **Multi-tenant SaaS** — `scope={"tenant_id": tenant.id}`, indexed. One
+  DB, many tenants, no cross-reads.
+- **Per-session ephemera** — `scope={"session_id": session.id}` layered on
+  top of a persistent user scope.
+
+## Direct vector-index scoping
+
+For workloads that use the raw HNSW vector index in `memscaledb` directly
+(without the high-level `MembrainClient`), use the scoped HNSW FFI:
+`memscale_hnsw_scoped_new`, `memscale_hnsw_scoped_add` (accepts per-vector
+metadata JSON), `memscale_hnsw_scoped_search` (accepts metadata-equality
+filter JSON). See the [MemscaleDB HNSW reference](/memscaledb/hnsw).

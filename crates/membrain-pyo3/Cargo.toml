@@ -1,0 +1,26 @@
+[package]
+name = "membrain-pyo3"
+version.workspace = true
+edition.workspace = true
+description = "PyO3-based Python bindings for Membrain (true async)"
+build = "build.rs"
+
+[lib]
+name = "membrain_native"          # compiles to _native.pyd / .so via maturin
+crate-type = ["cdylib"]
+
+[dependencies]
+membrain-core     = { workspace = true }
+membrain-ffi      = { workspace = true }
+membrain-storage  = { workspace = true }
+membrain-pipeline = { workspace = true }
+membrain-audit    = { workspace = true }
+membrain-graph    = { workspace = true }
+membrain-conflict = { workspace = true }
+tokio             = { workspace = true, features = ["rt-multi-thread"] }
+serde             = { workspace = true }
+serde_json        = { workspace = true }
+pyo3              = { workspace = true }
+pyo3-async-runtimes = { workspace = true }
+tracing           = { workspace = true }
+base64            = { workspace = true }

@@ -1,0 +1,2 @@
+{"query": "memory leak", "case": "[CASE]\nProblem: Memory leak in service\nOutcome: Stable memory usage\nReward: 1.0", "case_label": "positive", "plan": "Use weak references", "truth_label": true}
+{"query": "memory leak", "case": "[CASE]\nProblem: Memory leak in service\nOutcome: Masked the issue, caused user-visible hiccups\nReward: 0.0", "case_label": "negative", "plan": "Restart every hour", "truth_label": true}

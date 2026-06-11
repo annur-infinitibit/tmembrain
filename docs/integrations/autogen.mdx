@@ -1,0 +1,169 @@
+---
+title: AutoGen
+description: Using Membrain with AutoGen for multi-agent conversations with shared memory
+icon: robot
+---
+
+# AutoGen
+
+AutoGen orchestrates conversations between multiple LLM agents. Membrain provides the shared, persistent memory that lets those agents build on each other's work across sessions.
+
+## Multi-Agent Research & Summary Pipeline
+
+Two agents — a Researcher and a Summariser — pass work through shared Membrain memory. The Researcher drafts; the Summariser polishes; both read and write the same store.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+from autogen import ConversableAgent, config_list_from_models
+
+memory = MembrainClient()
+
+llm_config = {"config_list": config_list_from_models(["gpt-4"])}
+
+# --- Helper: expose Membrain to agents via a simple function ---
+def get_memory_context(topic: str) -> str:
+    results = memory.search(topic, limit=5)
+    return "\n".join([m.content for m in results.memories]) or "No prior context."
+
+def save_to_memory(content: str, label: str = "finding"):
+    memory.store_fact(content, 0.85)
+    memory.store_event(label, content)
+
+# --- Define agents ---
+researcher = ConversableAgent(
+    name="Researcher",
+    llm_config=llm_config,
+    system_message=(
+        "You are a research agent. When given a topic, produce a concise summary "
+        "of the key points. Start by reviewing any prior context provided."
+    ),
+)
+
+summarizer = ConversableAgent(
+    name="Summarizer",
+    llm_config=llm_config,
+    system_message=(
+        "You are a summarization agent. Take the researcher's output and produce "
+        "a final, polished summary suitable for storage."
+    ),
+)
+
+# --- Seed prior knowledge ---
+save_to_memory("Machine learning is a subset of artificial intelligence.", "seed")
+save_to_memory("Deep learning uses neural networks with many layers.", "seed")
+
+# --- Run the pipeline ---
+topic = "deep learning fundamentals"
+prior_context = get_memory_context(topic)
+
+# Researcher produces a draft
+research_prompt = f"Prior context:\n{prior_context}\n\nResearch topic: {topic}"
+research_result = researcher.generate_reply(
+    messages=[{"role": "user", "content": research_prompt}]
+)
+
+# Summarizer polishes it
+summary_result = summarizer.generate_reply(
+    messages=[{"role": "user", "content": f"Summarize this research:\n{research_result}"}]
+)
+
+# Persist the final summary
+save_to_memory(summary_result, "summary")
+
+print("=== Final Summary ===")
+print(summary_result)
+
+# Verify it was persisted
+stored = memory.search("deep learning summary", limit=3)
+print(f"\n{len(stored.memories)} memory(ies) stored for this topic.")
+
+memory.close()
+```
+</CodeGroup>
+
+## Shared Memory Across an Agent Group
+
+A three-agent team — Planner, Coder, Reviewer — each reads context from and writes results back to the same Membrain instance.
+
+```python
+from membrain import MembrainClient
+from autogen import ConversableAgent, config_list_from_models
+
+# Single Membrain instance shared by all agents
+memory = MembrainClient()
+llm_config = {"config_list": config_list_from_models(["gpt-4"])}
+
+# --- Agents with distinct roles, all reading/writing shared memory ---
+
+def memory_context(topic: str) -> str:
+    results = memory.search(topic, limit=5)
+    return "\n".join([m.content for m in results.memories]) or "No context yet."
+
+planner = ConversableAgent(
+    name="Planner",
+    llm_config=llm_config,
+    system_message="You plan tasks. Log each plan step to shared memory.",
+)
+
+coder = ConversableAgent(
+    name="Coder",
+    llm_config=llm_config,
+    system_message="You write code. Check shared memory for the plan before coding.",
+)
+
+reviewer = ConversableAgent(
+    name="Reviewer",
+    llm_config=llm_config,
+    system_message="You review code. Check shared memory for context and requirements.",
+)
+
+# --- Workflow ---
+# 1. Planner creates a plan and stores it
+plan = planner.generate_reply(
+    messages=[{"role": "user", "content": "Create a plan to build a REST API in Python."}]
+)
+memory.store_task(plan)
+memory.store_event("planner", f"Plan created: {plan[:100]}...")
+
+# 2. Coder reads the plan from memory
+plan_context = memory_context("REST API plan")
+code = coder.generate_reply(
+    messages=[{"role": "user", "content": f"Plan:\n{plan_context}\n\nWrite the code."}]
+)
+memory.store_fact(code, 0.8)
+memory.store_event("coder", "Code generated")
+
+# 3. Reviewer reads both plan and code
+review_context = memory_context("REST API")
+review = reviewer.generate_reply(
+    messages=[{"role": "user", "content": f"Context:\n{review_context}\n\nReview the code."}]
+)
+memory.store_event("reviewer", review)
+
+print("=== Review ===")
+print(review)
+
+memory.close()
+```
+
+<Warning>
+  AutoGen agents run sequentially in these examples. When using AutoGen's group-chat mode with parallel execution, create one `MembrainClient` per agent (clients are not thread-safe) or guard a shared instance with a lock.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CrewAI" icon="shield-halved" href="/integrations/crewai">
+    Role-based crews with shared memory tools
+  </Card>
+  <Card title="LlamaIndex" icon="magnifying-glass" href="/integrations/llamaindex">
+    Index-and-query-engine RAG pipelines
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Pluggable vector backends
+  </Card>
+  <Card title="Multi-Agent Systems" icon="users" href="/cookbooks/multi-agent">
+    Framework-agnostic multi-agent patterns
+  </Card>
+</CardGroup>

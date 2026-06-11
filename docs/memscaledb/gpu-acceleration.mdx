@@ -1,0 +1,146 @@
+---
+title: "GPU Acceleration"
+description: "Hardware-accelerated batch distance computation for MemscaleDB"
+---
+
+# GPU Acceleration
+
+MemscaleDB supports optional GPU-accelerated batch distance computation via
+**wgpu** (cross-platform: Vulkan, Metal, DX12, WebGPU). The GPU path is most
+beneficial for batch operations involving hundreds to tens of thousands of
+candidate vectors.
+
+## Requirements
+
+- A GPU with Vulkan, Metal, or DirectX 12 support
+- The library must be built with the `gpu` Cargo feature
+
+### Building with GPU Support
+
+```bash
+# Rust library
+cargo build -p memscaledb --features gpu
+
+# FFI shared library (for Python/JavaScript)
+cargo build -p membrain-ffi --features gpu
+```
+
+## When GPU Wins vs CPU
+
+The GPU path adds overhead for buffer allocation and data transfer, so it only
+activates when the number of candidates exceeds a configurable threshold
+(default: 256).
+
+| Scenario | Recommendation |
+| --- | --- |
+| Single-query HNSW search | CPU SIMD (graph traversal is sequential) |
+| Batch search with < 256 candidates | CPU SIMD |
+| Batch search with 256-10,000 candidates | GPU |
+| Brute-force over full dataset | GPU |
+| PQ reranking with many candidates | GPU |
+
+Typical speedups range from 3-6x over CPU SIMD for batches of 1,000+
+candidates at 768+ dimensions.
+
+## Configuration
+
+```python
+# GpuConfig fields:
+# - max_batch_size: Maximum candidates per GPU dispatch (default: 16384)
+# - gpu_batch_threshold: Minimum candidates for GPU path (default: 256)
+```
+
+## Python Usage
+
+```python
+from membrain import MembrainIndex
+
+# Check if GPU is available
+if MembrainIndex.gpu_available():
+    index = MembrainIndex(dimension=768)
+
+    # Add vectors
+    for i in range(1000):
+        index.add(f"vec-{i}", [0.1] * 768)
+
+    # Enable GPU
+    index.enable_gpu({"max_batch_size": 8192})
+
+    # GPU batch search
+    queries = [[0.1] * 768, [0.2] * 768, [0.3] * 768]
+    results = index.gpu_batch_search(queries, k=10)
+    for query_results in results:
+        for r in query_results:
+            print(r.id, r.score)
+else:
+    print("GPU not available, using CPU")
+```
+
+## JavaScript Usage
+
+```typescript
+import { MembrainIndex } from "membrain";
+
+// Check if GPU is available
+if (MembrainIndex.gpuAvailable()) {
+  const index = new MembrainIndex(768);
+
+  // Add vectors
+  for (let i = 0; i < 1000; i++) {
+    index.add(`vec-${i}`, new Array(768).fill(0.1));
+  }
+
+  // Enable GPU
+  index.enableGpu({ max_batch_size: 8192 });
+
+  // GPU batch search
+  const queries = [new Array(768).fill(0.1), new Array(768).fill(0.2)];
+  const results = index.gpuBatchSearch(queries, 10);
+  for (const queryResults of results) {
+    for (const r of queryResults) {
+      console.log(r.id, r.score);
+    }
+  }
+}
+```
+
+## Rust Usage
+
+```rust
+use memscaledb::{GpuConfig, GpuDistanceContext, HnswIndex, VectorId, VectorIndex};
+
+let mut index = HnswIndex::new(768);
+
+// Add vectors
+for _ in 0..1000 {
+    index.add(VectorId::new(), &vec![0.1; 768]).unwrap();
+}
+
+// Enable GPU
+let config = GpuConfig {
+    max_batch_size: 8192,
+    gpu_batch_threshold: 256,
+};
+index.enable_gpu(config).unwrap();
+
+// Use GPU batch distance directly
+let query = vec![0.1; 768];
+let candidates: Vec<Vec<f32>> = vec![vec![0.2; 768]; 500];
+let candidate_refs: Vec<&[f32]> = candidates.iter().map(|v| v.as_slice()).collect();
+let mut distances = vec![0.0f32; 500];
+index.gpu_batch_distance(&query, &candidate_refs, &mut distances).unwrap();
+```
+
+## Performance Characteristics
+
+- **Buffer allocation**: First dispatch in a session has higher latency due to
+  GPU buffer creation. Subsequent dispatches reuse pipeline state.
+- **Data transfer**: Vectors are copied to GPU memory each dispatch. For
+  repeated searches over the same dataset, `gpu_batch_search` is more
+  efficient as it uploads candidate data once per call.
+- **Workgroup size**: 256 threads per workgroup. The shader launches
+  `ceil(candidate_count / 256)` workgroups.
+- **Chunking**: Batches larger than `max_batch_size` are automatically split
+  into multiple GPU dispatches.
+- **Graceful fallback**: If no GPU is found, `enable_gpu()` returns an error.
+  `gpu_batch_search()` falls back to CPU-based batch search.

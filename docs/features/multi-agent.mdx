@@ -1,0 +1,128 @@
+---
+title: Multi-Agent Coordination
+description: Shared memory for collaborative AI systems
+icon: users
+---
+
+# Multi-Agent Coordination
+
+Give every agent a read/write handle to the same Membrain instance and they gain shared long-term memory: researchers publish findings, writers consume them, planners track goals, and every agent benefits from the others' observations.
+
+<CardGroup cols={2}>
+  <Card title="Shared knowledge" icon="database">One memory layer, many clients.</Card>
+  <Card title="Agent identity" icon="id-badge">Tag observations with the author agent.</Card>
+  <Card title="Coordination" icon="handshake">Agents see each other's progress via observations.</Card>
+  <Card title="Collaborative learning" icon="brain">Cases from one agent help the rest.</Card>
+</CardGroup>
+
+## Researcher + writer
+
+A minimal two-agent flow: researcher stores findings, writer retrieves them.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+from openai import OpenAI
+
+memory = MembrainClient()
+llm = OpenAI()
+
+def chat(prompt):
+    r = llm.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return r.choices[0].message.content
+
+def research(topic, agent_id="researcher"):
+    findings = chat(f"Key facts about {topic}. Return a bullet list.")
+    memory.store_fact(findings, confidence=0.85)
+    memory.store_observation(f"{agent_id}: researched {topic}")
+    return findings
+
+def write(topic, agent_id="writer"):
+    context = "\n".join(m.content for m in memory.search(topic, limit=5).memories)
+    article = chat(f"Write an article on {topic}.\n\nKnown facts:\n{context}")
+    memory.store_observation(f"{agent_id}: published article on {topic}")
+    return article
+
+research("Rust memory safety")
+print(write("Rust memory safety"))
+```
+
+```javascript JavaScript
+import { MembrainClient } from "membrain";
+import OpenAI from "openai";
+
+const memory = new MembrainClient();
+const llm = new OpenAI();
+
+const chat = async (prompt) => (await llm.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [{ role: "user", content: prompt }],
+})).choices[0].message.content;
+
+const research = async (topic, agentId = "researcher") => {
+  const findings = await chat(`Key facts about ${topic}. Return a bullet list.`);
+  memory.storeFact(findings, 0.85);
+  memory.storeObservation(`${agentId}: researched ${topic}`);
+  return findings;
+};
+
+const write = async (topic, agentId = "writer") => {
+  const ctx = memory.search(topic, 5).memories.map(m => m.content).join("\n");
+  const article = await chat(`Write an article on ${topic}.\n\nKnown facts:\n${ctx}`);
+  memory.storeObservation(`${agentId}: published article on ${topic}`);
+  return article;
+};
+
+await research("Rust memory safety");
+console.log(await write("Rust memory safety"));
+```
+</CodeGroup>
+
+## Coordination via observations
+
+Agents read a lightweight activity log from `search("<agent_id>:", ...)` to see who is doing what, avoiding duplicate work.
+
+```python
+recent = memory.search("researcher:", limit=20)
+if any("Rust memory safety" in m.content for m in recent.memories):
+    print("Already covered, skip.")
+```
+
+## Goals and tasks
+
+Use `store_goal` / `store_task` so a supervisor agent can assign and track work:
+
+<CodeGroup>
+```python Python
+goal = memory.store_goal("Launch new pricing page")
+memory.store_task("Write copy", goal_id=goal.id)
+memory.store_task("Ship A/B test", goal_id=goal.id)
+```
+
+```javascript JavaScript
+const goal = memory.storeGoal("Launch new pricing page");
+memory.storeTask("Write copy", goal.id);
+memory.storeTask("Ship A/B test", goal.id);
+```
+</CodeGroup>
+
+## Per-tenant isolation
+
+If agents serve independent users or workspaces, use [`MultiTenantIndex`](/api-reference/multi-tenant-index) to give each one its own vector namespace while keeping a single process.
+
+## Framework integrations
+
+Membrain plugs into most agent frameworks as a shared memory backend:
+
+- [LangGraph](/integrations/langgraph)
+- [AutoGen](/integrations/autogen)
+- [CrewAI](/integrations/crewai)
+
+## See also
+
+- [Conversation API](/api-reference/conversation) — automatic per-turn memory loop.
+- [CBR API](/api-reference/cbr-api) — agents learn from each other's past cases.
+- [Multi-agent cookbook](/cookbooks/multi-agent) — worked patterns.

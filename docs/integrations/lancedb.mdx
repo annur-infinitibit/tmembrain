@@ -1,0 +1,207 @@
+---
+title: LanceDB
+description: Embedded vector database with disk-based storage and metadata filtering
+icon: hard-drive
+---
+
+# LanceDB
+
+LanceDB is an embedded vector database that stores data on disk with no server required. It is an excellent fit for local-first architectures, edge deployments, and applications that need persistent vector search without running a separate service.
+
+<CardGroup cols={2}>
+  <Card title="Embedded" icon="microchip" color="#3b82f6">
+    No server process. Runs in your application process, just like SQLite.
+  </Card>
+  <Card title="Disk-based storage" icon="hard-drive">
+    Data persists to disk automatically. No manual save/load steps.
+  </Card>
+  <Card title="Metadata filtering" icon="filter" color="#10b981">
+    Filter search results by metadata columns using SQL expressions.
+  </Card>
+  <Card title="Multimodal" icon="images">
+    Supports any embedding type -- text, image, audio, or custom vectors.
+  </Card>
+</CardGroup>
+
+## Setup
+
+**Install the client library:**
+
+<CodeGroup>
+```bash Python
+pip install lancedb
+```
+
+```bash JavaScript
+npm install @lancedb/lancedb
+```
+</CodeGroup>
+
+<Tip>
+  LanceDB is fully embedded -- no Docker, no server, no cloud account. Just install the package and connect to a local directory.
+</Tip>
+
+## Usage
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, LanceDBBackend
+
+backend = LanceDBBackend(
+    uri="./lancedb_data",
+    table_name="membrain",
+    dimension=1536,              # must match your embedding model
+)
+
+client = MembrainClient(vector_backend=backend)
+
+client.store_fact("LanceDB stores vectors on disk with zero config", 0.9)
+results = client.search("embedded vector database", limit=5)
+
+for m in results.memories:
+    print(f"{m.content}  (score {m.score:.2f})")
+
+client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient({
+  vector_db: {
+    backend: "lancedb",
+    uri: "./lancedb_data",
+    table_name: "membrain",
+    dimension: 1536,
+  },
+});
+
+client.storeFact("LanceDB stores vectors on disk with zero config", 0.9);
+const results = client.search("embedded vector database", 5);
+
+results.memories.forEach(m =>
+  console.log(`${m.content}  (score ${m.score.toFixed(2)})`)
+);
+
+client.close();
+```
+</CodeGroup>
+
+### Direct Backend Usage
+
+You can also use the `LanceDBBackend` class directly for lower-level vector operations.
+
+<CodeGroup>
+```python Python
+from membrain import LanceDBBackend
+
+backend = LanceDBBackend(
+    uri="./lancedb_data",
+    table_name="membrain",
+    dimension=1536,
+)
+
+# Store a vector
+backend.store("mem-1", [0.1, 0.2, 0.3], {"type": "fact"})
+
+# Search
+results = backend.search([0.1, 0.2, 0.35], 5)
+for memory_id, score, metadata in results:
+    print(f"{memory_id}: {score:.3f}")
+
+# Health check
+healthy = backend.health_check()
+print(f"Backend healthy: {healthy}")
+```
+
+```javascript JavaScript
+const { LanceDBBackend } = require("membrain");
+
+const backend = new LanceDBBackend({
+  uri: "./lancedb_data",
+  tableName: "membrain",
+  dimension: 1536,
+});
+
+await backend.ensureTable();
+
+// Store a vector
+await backend.store("mem-1", [0.1, 0.2, 0.3], { type: "fact" });
+
+// Search
+const results = await backend.search([0.1, 0.2, 0.35], 5);
+for (const result of results) {
+  console.log(`${result.memoryId}: ${result.score.toFixed(3)}`);
+}
+
+// Health check
+const healthy = await backend.healthCheck();
+console.log(`Backend healthy: ${healthy}`);
+```
+</CodeGroup>
+
+## Configuration options
+
+| Key | Description | Default |
+|---|---|---|
+| `uri` | Path to the LanceDB database directory | `./lancedb_data` |
+| `table_name` / `tableName` | Table to use or create | `membrain` |
+| `dimension` | Embedding vector length -- must match your model | `1536` |
+
+## Migrating from MemscaleDB
+
+If you have been using the default MemscaleDB index and want to move to LanceDB, follow these steps. No application logic changes are needed -- only the backend wiring.
+
+<Steps>
+  <Step title="Install LanceDB">
+    ```bash
+    pip install lancedb
+    ```
+  </Step>
+  <Step title="Export existing memories">
+    ```python
+    from membrain import MembrainClient
+
+    old = MembrainClient()                          # default MemscaleDB
+    memories = old.search("*", limit=10000)         # pull everything
+    old.close()
+    ```
+  </Step>
+  <Step title="Re-import into LanceDB">
+    ```python
+    from membrain import MembrainClient, LanceDBBackend
+
+    backend = LanceDBBackend(
+        uri="./lancedb_data",
+        table_name="membrain",
+        dimension=1536,
+    )
+    new = MembrainClient(vector_backend=backend)
+
+    for m in memories.memories:
+        new.store_fact(m.content, m.score)          # re-indexed automatically
+
+    new.close()
+    ```
+  </Step>
+  <Step title="Update config everywhere">
+    Set `MEMBRAIN_VECTOR_DB_BACKEND=lancedb` (or pass the backend explicitly) wherever the client is created.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Qdrant" icon="server" href="/integrations/qdrant">
+    Production-scale persistent search with hybrid queries
+  </Card>
+  <Card title="ChromaDB" icon="layers" href="/integrations/chromadb">
+    Lightest persistent option for LLM apps
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Comparison, config reference and custom backends
+  </Card>
+  <Card title="Advanced Patterns" icon="wand-magic-sparkles" href="/cookbooks/advanced-patterns">
+    Fallback chains, connection pooling, monitoring
+  </Card>
+</CardGroup>

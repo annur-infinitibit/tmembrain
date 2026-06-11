@@ -1,0 +1,21 @@
+[package]
+name = "membrain-jobs"
+version.workspace = true
+edition.workspace = true
+description = "Background job scheduler for Membrain"
+
+[dependencies]
+membrain-core = { workspace = true }
+membrain-storage = { workspace = true }
+membrain-compression = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+[lints]
+workspace = true

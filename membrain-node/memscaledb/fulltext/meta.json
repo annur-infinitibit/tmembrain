@@ -1,0 +1,109 @@
+{
+  "index_settings": {
+    "docstore_compression": "lz4",
+    "docstore_blocksize": 16384
+  },
+  "segments": [
+    {
+      "segment_id": "e771082b-9e66-4281-886b-d48ceeb034c9",
+      "max_doc": 1,
+      "deletes": null
+    },
+    {
+      "segment_id": "ec96fb0a-301b-420d-a6a7-a9129f22a520",
+      "max_doc": 1,
+      "deletes": null
+    },
+    {
+      "segment_id": "2535e419-4de4-488c-b091-89ca5bb35fa2",
+      "max_doc": 1,
+      "deletes": null
+    },
+    {
+      "segment_id": "68910359-0a5b-4c5d-ad65-2d3a072f7493",
+      "max_doc": 1,
+      "deletes": null
+    },
+    {
+      "segment_id": "8a94ce9f-e823-49cf-a08c-9793be6033ca",
+      "max_doc": 1,
+      "deletes": null
+    }
+  ],
+  "schema": [
+    {
+      "name": "memory_id",
+      "type": "text",
+      "options": {
+        "indexing": {
+          "record": "basic",
+          "fieldnorms": true,
+          "tokenizer": "raw"
+        },
+        "stored": true,
+        "fast": false
+      }
+    },
+    {
+      "name": "text_content",
+      "type": "text",
+      "options": {
+        "indexing": {
+          "record": "position",
+          "fieldnorms": true,
+          "tokenizer": "default"
+        },
+        "stored": false,
+        "fast": false
+      }
+    },
+    {
+      "name": "tags",
+      "type": "text",
+      "options": {
+        "indexing": {
+          "record": "position",
+          "fieldnorms": true,
+          "tokenizer": "default"
+        },
+        "stored": false,
+        "fast": false
+      }
+    },
+    {
+      "name": "memory_type",
+      "type": "text",
+      "options": {
+        "indexing": {
+          "record": "position",
+          "fieldnorms": true,
+          "tokenizer": "default"
+        },
+        "stored": false,
+        "fast": true
+      }
+    },
+    {
+      "name": "confidence",
+      "type": "f64",
+      "options": {
+        "indexed": false,
+        "fieldnorms": false,
+        "fast": true,
+        "stored": false
+      }
+    },
+    {
+      "name": "created_at",
+      "type": "date",
+      "options": {
+        "indexed": false,
+        "fieldnorms": false,
+        "fast": true,
+        "stored": false,
+        "precision": "seconds"
+      }
+    }
+  ],
+  "opstamp": 19
+}

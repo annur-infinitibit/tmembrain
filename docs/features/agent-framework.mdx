@@ -1,0 +1,201 @@
+---
+title: Agent Framework
+description: Plan, execute, and learn from tasks using Membrain's agent orchestration
+icon: robot
+---
+
+# Agent Framework
+
+Membrain ships a lightweight agent framework that glues together a planner, executor, and the case-based reasoning loop. The planner decomposes a query into ordered steps, the executor runs each step through a user-supplied LLM callable (optionally calling registered tools), and successful outcomes feed the experience replay buffer so future plans can learn from them.
+
+<CardGroup cols={2}>
+  <Card title="MembrainPlanner" icon="list-check">
+    LLM-driven task decomposition with past-case context injection
+  </Card>
+  <Card title="MembrainExecutor" icon="bolt">
+    Step executor with pluggable tool registration
+  </Card>
+  <Card title="MembrainAgent" icon="robot">
+    Plan-execute-learn loop wired together with `ExperienceReplay`
+  </Card>
+  <Card title="BYO LLM" icon="plug">
+    Any callable that takes chat messages and returns a string
+  </Card>
+</CardGroup>
+
+## Installation
+
+<CodeGroup>
+```bash Python
+pip install membrain openai
+```
+
+```bash JavaScript
+npm install membrain openai
+```
+</CodeGroup>
+
+## Running an Agent
+
+`MembrainAgent` takes a `MembrainClient` and an LLM callable. The callable receives OpenAI-style chat messages (`[{role, content}, ...]`) and returns the response text.
+
+<CodeGroup>
+```python Python
+import os
+from openai import OpenAI
+from membrain import MembrainClient
+from membrain.agent import MembrainAgent
+
+openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+def llm(messages):
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        temperature=0,
+    )
+    return response.choices[0].message.content or ""
+
+client = MembrainClient()
+agent = MembrainAgent(client=client, llm_callable=llm, max_cycles=2)
+output = agent.run("Deploy the billing service to production")
+print(output)
+```
+
+```javascript JavaScript
+import OpenAI from "openai";
+import { MembrainAgent, MembrainClient } from "membrain";
+
+const openai = new OpenAI();
+
+async function llm(messages) {
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages,
+    temperature: 0,
+  });
+  return response.choices[0].message.content ?? "";
+}
+
+const client = new MembrainClient();
+const agent = new MembrainAgent(client, llm, { maxCycles: 2 });
+const output = await agent.run("Deploy the billing service to production");
+console.log(output);
+```
+</CodeGroup>
+
+## Planning Only
+
+Use `MembrainPlanner` directly when you just want a plan — no execution loop, no learning.
+
+<CodeGroup>
+```python Python
+from membrain.cbr import CasePromptBuilder, NonParametricRetriever
+from membrain.agent import MembrainPlanner
+
+planner = MembrainPlanner(
+    retriever=NonParametricRetriever(client),
+    prompt_builder=CasePromptBuilder(),
+    llm_callable=llm,
+    case_limit=5,
+)
+plan = planner.plan("Ship the new microservice")
+for step in plan.steps:
+    print(f"{step.id}. {step.description}")
+```
+
+```javascript JavaScript
+import {
+  CasePromptBuilder,
+  MembrainPlanner,
+  NonParametricRetriever,
+} from "membrain";
+
+const planner = new MembrainPlanner(
+  new NonParametricRetriever(client),
+  new CasePromptBuilder(),
+  llm,
+  { caseLimit: 5 },
+);
+const plan = await planner.plan("Ship the new microservice");
+for (const step of plan.steps) {
+  console.log(`${step.id}. ${step.description}`);
+}
+```
+</CodeGroup>
+
+## Registering Tools
+
+The executor can dispatch to user-registered tools. The LLM asks for a tool by emitting `TOOL_CALL: tool_name(arg1, arg2)` in its response; arguments are stripped of surrounding quotes and passed to the registered callable.
+
+<CodeGroup>
+```python Python
+from membrain.agent import MembrainExecutor
+
+executor = MembrainExecutor(llm_callable=llm)
+executor.register_tool("lookup_health", lambda service: f"{service}: healthy")
+
+result = executor.execute(TaskStep(id=1, description="Check billing service health"))
+print(result.output)
+```
+
+```javascript JavaScript
+import { MembrainExecutor } from "membrain";
+
+const executor = new MembrainExecutor(llm);
+executor.registerTool("lookup_health", (service) => `${service}: healthy`);
+
+const result = await executor.execute({
+  id: 1,
+  description: "Check billing service health",
+});
+console.log(result.output);
+```
+</CodeGroup>
+
+## Batch Runs with Automatic Learning
+
+`MembrainAgent.run_batch` / `runBatch` runs many queries, asks a judge callable for correctness, and records each execution into the experience replay buffer so the next run benefits from the accumulated cases.
+
+<CodeGroup>
+```python Python
+def judge(query, output, results):
+    return "healthy" in output.lower()
+
+outputs = agent.run_batch(
+    queries=[
+        "Check billing service",
+        "Check checkout service",
+    ],
+    judge_callable=judge,
+)
+```
+
+```javascript JavaScript
+function judge(query, output) {
+  return output.toLowerCase().includes("healthy");
+}
+
+const outputs = await agent.runBatch(
+  ["Check billing service", "Check checkout service"],
+  judge,
+);
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Case-Based Reasoning" icon="brain" href="/features/case-based-reasoning">
+    Learn how past cases inform future plans
+  </Card>
+  <Card title="AI Agents Cookbook" icon="book" href="/cookbooks/ai-agents">
+    Walkthrough for building production agents
+  </Card>
+  <Card title="CBR API Reference" icon="code" href="/api-reference/cbr-api">
+    Full API reference for planners, retrievers, and experience replay
+  </Card>
+  <Card title="Conversation" icon="comments" href="/api-reference/conversation">
+    Drop-in conversation manager with memory extraction
+  </Card>
+</CardGroup>

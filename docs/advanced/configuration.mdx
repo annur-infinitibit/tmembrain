@@ -1,0 +1,222 @@
+---
+title: Configuration
+description: Configure Membrain for your use case
+icon: gear
+---
+
+# Configuration
+
+Comprehensive guide to configuring Membrain for optimal performance and behavior.
+
+## Configuration Options
+
+All configuration is passed during client initialization:
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+
+config = {
+    "max_memories": 100000,
+    "embedding_dim": 384,
+    "similarity_threshold": 0.85,
+    "enable_deduplication": True,
+    "deduplication_threshold": 0.95,
+    "storage_path": "/data/membrain",
+    "hidden_dim": 128,
+    "graph_embedding_dim": 16,
+    "compression_enabled": True,
+    "index_refresh_interval": 60
+}
+
+client = MembrainClient(config)
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const config = {
+    max_memories: 100000,
+    embedding_dim: 384,
+    similarity_threshold: 0.85,
+    enable_deduplication: true,
+    deduplication_threshold: 0.95,
+    storage_path: '/data/membrain',
+    hidden_dim: 128,
+    graph_embedding_dim: 16,
+    compression_enabled: true,
+    index_refresh_interval: 60
+};
+
+const client = new MembrainClient(config);
+```
+
+```rust Rust
+use membrain_core::{MembrainClient, Config};
+
+let config = Config {
+    max_memories: 100000,
+    embedding_dim: 384,
+    similarity_threshold: 0.85,
+    enable_deduplication: true,
+    deduplication_threshold: 0.95,
+    storage_path: Some("/data/membrain".into()),
+    hidden_dim: 128,
+    graph_embedding_dim: 16,
+    compression_enabled: true,
+    index_refresh_interval: 60,
+    ..Default::default()
+};
+
+let client = MembrainClient::new(Some(config))?;
+```
+</CodeGroup>
+
+## Storage Configuration
+
+<ParamField path="max_memories" type="number" default={100000}>
+  Maximum number of memories to store
+</ParamField>
+
+<ParamField path="storage_path" type="string" default={null}>
+  Path to storage directory (null = in-memory only)
+</ParamField>
+
+<ParamField path="compression_enabled" type="boolean" default={true}>
+  Enable compression for storage
+</ParamField>
+
+## Embedding Configuration
+
+<ParamField path="embedding_dim" type="number" default={384}>
+  Dimension of embedding vectors (must match your embedding model)
+</ParamField>
+
+<ParamField path="similarity_threshold" type="number" default={0.85}>
+  Minimum similarity score for search results (0.0 to 1.0)
+</ParamField>
+
+## Deduplication Configuration
+
+<ParamField path="enable_deduplication" type="boolean" default={true}>
+  Enable automatic deduplication
+</ParamField>
+
+<ParamField path="deduplication_threshold" type="number" default={0.95}>
+  Similarity threshold for merging memories (0.0 to 1.0)
+</ParamField>
+
+## Graph Configuration
+
+<ParamField path="hidden_dim" type="number" default={128}>
+  Hidden dimension for graph attention computation
+</ParamField>
+
+<ParamField path="graph_embedding_dim" type="number" default={16}>
+  Dimension of graph node embeddings
+</ParamField>
+
+<ParamField path="attention_threshold" type="number" default={0.7}>
+  Minimum attention score for creating edges (0.0 to 1.0)
+</ParamField>
+
+<ParamField path="max_edges_per_node" type="number" default={50}>
+  Maximum outgoing edges per graph node
+</ParamField>
+
+## Performance Configuration
+
+<ParamField path="index_refresh_interval" type="number" default={60}>
+  Seconds between index refreshes (0 = no automatic refresh)
+</ParamField>
+
+<ParamField path="batch_size" type="number" default={100}>
+  Batch size for bulk operations
+</ParamField>
+
+<ParamField path="enable_gpu" type="boolean" default={false}>
+  Enable GPU acceleration (requires CUDA)
+</ParamField>
+
+## Environment Variables
+
+Alternatively, configure via environment variables:
+
+```bash
+export MEMBRAIN_LIB_PATH=/path/to/libmembrain_ffi.so
+export MEMBRAIN_STORAGE_PATH=/data/membrain
+export MEMBRAIN_EMBEDDING_DIM=768
+export MEMBRAIN_SIMILARITY_THRESHOLD=0.9
+export MEMBRAIN_ENABLE_GPU=true
+```
+
+## Profile-Based Configuration
+
+<Tabs>
+  <Tab title="Development">
+    ```python
+    # Fast, in-memory, minimal features
+    config = {
+        "storage_path": None,  # In-memory only
+        "compression_enabled": False,
+        "enable_deduplication": False,
+        "max_memories": 10000
+    }
+    ```
+  </Tab>
+
+  <Tab title="Production">
+    ```python
+    # Persistent, optimized, all features
+    config = {
+        "storage_path": "/var/lib/membrain",
+        "compression_enabled": True,
+        "enable_deduplication": True,
+        "max_memories": 1000000,
+        "index_refresh_interval": 300,
+        "enable_gpu": True
+    }
+    ```
+  </Tab>
+
+  <Tab title="High-Performance">
+    ```python
+    # GPU-accelerated, large batches
+    config = {
+        "enable_gpu": True,
+        "batch_size": 500,
+        "index_refresh_interval": 0,  # Manual refresh
+        "compression_enabled": False,  # Trade space for speed
+        "hnsw_m": 32,
+        "hnsw_ef_construction": 400
+    }
+    ```
+  </Tab>
+
+  <Tab title="Memory-Constrained">
+    ```python
+    # Minimal memory footprint
+    config = {
+        "compression_enabled": True,
+        "max_memories": 50000,
+        "embedding_dim": 128,  # Smaller embeddings
+        "graph_embedding_dim": 8,
+        "max_edges_per_node": 20
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Performance Tuning" icon="gauge-high" href="/advanced/performance">
+    Optimize for your workload
+  </Card>
+  <Card title="GPU Acceleration" icon="microchip" href="/memscaledb/gpu-acceleration">
+    Enable CUDA acceleration
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/advanced/architecture">
+    Understand system internals
+  </Card>
+</CardGroup>

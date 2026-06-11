@@ -1,0 +1,31 @@
+[package]
+name = "membrain-core"
+version.workspace = true
+edition.workspace = true
+description = "Core types, traits, and schemas for the Membrain memory system"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+toml = { workspace = true }
+config = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tokio = { workspace = true }
+tokio-test = { workspace = true }
+membrain-test-utils = { workspace = true }
+tempfile = { workspace = true }
+anyhow = { workspace = true }
+futures-util = { workspace = true }
+
+[lints]
+workspace = true

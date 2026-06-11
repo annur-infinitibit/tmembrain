@@ -1,0 +1,77 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+.venv/
+venv/
+.python-version
+benchmarks/
+paper/
+# Node.js
+node_modules/
+*.tsbuildinfo
+
+# Claude
+.claude/
+CLAUDE.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.redb
+
+# redb / tantivy runtime state
+/memscaledb/
+memscaledb/fulltext/
+memscaledb/vectors/
+tests/**/memscaledb/
+
+# LaTeX build artifacts (keep .tex, ignore build output)
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.pdf
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.synctex.gz
+paper/*.out
+paper/*.toc
+
+# Shared libraries (built artifacts)
+*.so
+*.dylib
+*.dll
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage/
+lcov.info

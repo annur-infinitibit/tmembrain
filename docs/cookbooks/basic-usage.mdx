@@ -1,0 +1,166 @@
+---
+title: Basic Usage
+description: Compact recipes for common Membrain + LLM patterns
+icon: book
+---
+
+# Basic Usage
+
+Short, runnable recipes for the most common Membrain patterns. Each section covers the same idea in Python and JavaScript.
+
+## RAG: retrieve then generate
+
+Store knowledge, search for relevant chunks, feed them to an LLM.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+from openai import OpenAI
+
+memory = MembrainClient()
+llm = OpenAI()
+
+for fact in [
+    "RAG combines retrieval with generation.",
+    "Vector search finds semantically similar content.",
+    "Embeddings convert text to numerical vectors.",
+]:
+    memory.store_fact(fact, confidence=0.9)
+
+def rag(question):
+    ctx = "\n".join(m.content for m in memory.search(question, limit=3).memories)
+    r = llm.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": f"Use this context:\n{ctx}"},
+            {"role": "user", "content": question},
+        ],
+    )
+    return r.choices[0].message.content
+
+print(rag("What is RAG?"))
+```
+
+```javascript JavaScript
+import { MembrainClient } from "membrain";
+import OpenAI from "openai";
+
+const memory = new MembrainClient();
+const llm = new OpenAI();
+
+for (const f of [
+  "RAG combines retrieval with generation.",
+  "Vector search finds semantically similar content.",
+  "Embeddings convert text to numerical vectors.",
+]) memory.storeFact(f, 0.9);
+
+async function rag(question) {
+  const ctx = memory.search(question, 3).memories.map(m => m.content).join("\n");
+  const r = await llm.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: `Use this context:\n${ctx}` },
+      { role: "user", content: question },
+    ],
+  });
+  return r.choices[0].message.content;
+}
+
+console.log(await rag("What is RAG?"));
+```
+</CodeGroup>
+
+## Stateful chat with automatic memory
+
+The [`Conversation`](/api-reference/conversation) class wraps retrieve + generate + extract in one call.
+
+<CodeGroup>
+```python Python
+from membrain import Conversation
+from openai import OpenAI
+llm = OpenAI()
+
+def call(messages):
+    return llm.chat.completions.create(model="gpt-4o-mini", messages=messages).choices[0].message.content
+
+with Conversation(llm_callable=call) as conv:
+    conv.reply("I prefer Python and dark mode.")
+    print(conv.reply("What do you know about me?"))
+    conv.end(outcome="onboarded", reward=1.0)
+```
+
+```javascript JavaScript
+import { Conversation } from "membrain";
+import OpenAI from "openai";
+const openai = new OpenAI();
+
+const call = async (messages) => (await openai.chat.completions.create({
+  model: "gpt-4o-mini", messages,
+})).choices[0].message.content;
+
+const conv = new Conversation(call);
+await conv.reply("I prefer Python and dark mode.");
+console.log(await conv.reply("What do you know about me?"));
+conv.end("onboarded", 1.0);
+conv.close();
+```
+</CodeGroup>
+
+## Recording preferences and entities
+
+Structured storage lets you query by type later.
+
+<CodeGroup>
+```python Python
+memory.store_preference(holder="user", subject="theme", preference="dark", strength="strong")
+memory.store_entity(name="Acme Corp", entity_type="organization")
+memory.store_concept(name="SOLID", definition="Five OO design principles.")
+```
+
+```javascript JavaScript
+memory.storePreference("user", "theme", "dark", "strong");
+memory.storeEntity("Acme Corp", "organization");
+memory.storeConcept("SOLID", "Five OO design principles.");
+```
+</CodeGroup>
+
+## Filtering search results
+
+<CodeGroup>
+```python Python
+results = memory.search_with_filters(
+    query="deployment",
+    memory_types=["workflow", "pattern"],
+    limit=5,
+)
+```
+
+```javascript JavaScript
+const results = memory.searchWithFilters({
+  query: "deployment",
+  memory_types: ["workflow", "pattern"],
+  limit: 5,
+});
+```
+</CodeGroup>
+
+## Event logging for replay
+
+<CodeGroup>
+```python Python
+memory.store_event("user_action", "clicked Buy")
+memory.store_event("payment", "charged $29 via Stripe")
+```
+
+```javascript JavaScript
+memory.storeEvent("user_action", "clicked Buy");
+memory.storeEvent("payment", "charged $29 via Stripe");
+```
+</CodeGroup>
+
+## See also
+
+- [Memory types](/features/memory-types)
+- [Semantic search](/features/semantic-search)
+- [Reranking cookbook](/cookbooks/reranking) — higher-precision retrieval.
+- [Conversation API](/api-reference/conversation)

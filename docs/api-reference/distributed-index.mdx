@@ -1,0 +1,97 @@
+---
+title: Distributed Index
+description: Horizontally scaled HNSW with consistent hashing and SWIM gossip
+icon: globe
+---
+
+# Distributed Index
+
+`MembrainDistributedIndex` spreads vectors across multiple nodes using consistent hashing. Membership and failure detection run over SWIM-style gossip. Use this when a single node cannot hold the working set or you need replication.
+
+## Quickstart
+
+<CodeGroup>
+```python Python
+from membrain import MembrainDistributedIndex
+import uuid
+
+index = MembrainDistributedIndex.connect(
+    dimension=768,
+    config={
+        "listen_address": "127.0.0.1:9400",
+        "seed_nodes": ["10.0.0.1:9400", "10.0.0.2:9400"],
+        "replication_factor": 3,
+    },
+)
+
+index.add(str(uuid.uuid4()), my_vector)
+results = index.search(query_vector, k=10)
+index.close()
+```
+
+```javascript JavaScript
+import { MembrainDistributedIndex } from "membrain";
+import crypto from "node:crypto";
+
+const index = MembrainDistributedIndex.connect({
+  dimension: 768,
+  listen_address: "127.0.0.1:9400",
+  seed_nodes: ["10.0.0.1:9400", "10.0.0.2:9400"],
+  replication_factor: 3,
+});
+
+index.add(crypto.randomUUID(), myVector);
+const results = index.search(queryVector, 10);
+index.close();
+```
+</CodeGroup>
+
+## `connect(dimension, config, *, lib_path)`
+
+Creates a node handle and joins the cluster. The Python API splits `dimension` into its own parameter; the Node API folds it into the config object.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `listen_address` | `"127.0.0.1:9400"` | Host:port for gossip + RPC. |
+| `seed_nodes` | `[]` | Peers to gossip with on startup. Empty = single-node bootstrap. |
+| `replication_factor` | `3` | Copies of each vector across nodes. |
+| `virtual_nodes_per_node` | `128` | Consistent-hash vnodes per physical node. |
+| `rpc_timeout` | `5000` | RPC timeout (ms). |
+| `gossip_interval` | `1000` | Gossip tick (ms). |
+| `suspicion_timeout` | `10000` | Time before a silent peer is declared failed (ms). |
+| `max_connections_per_peer` | `8` | Connection-pool cap. |
+| `local_hnsw_config` | `{}` | Per-node HNSW tuning. |
+
+## Methods
+
+| Method | Description |
+|---|---|
+| `add(id, embedding)` | Routes the vector to its primary + replica nodes. |
+| `remove(id)` | Deletes across replicas. |
+| `search(query, k=10)` | Fans out, merges top-k. |
+| `search_with_filter(query, k, allowed_ids)` | Restrict results to an ID allowlist. |
+| `batch_search(queries, k)` | Parallel queries, one round-trip per batch. |
+| `cluster_info()` | Live cluster membership, replication state. |
+| `len()` / `dimension` / `metrics()` | Index stats. |
+| `shutdown()` / `close()` | Graceful leave + resource release. |
+
+## Patterns
+
+**Bootstrap a 3-node cluster locally:**
+
+```python
+n1 = MembrainDistributedIndex.connect(dimension=128, config={"listen_address": "127.0.0.1:9401"})
+n2 = MembrainDistributedIndex.connect(dimension=128, config={
+    "listen_address": "127.0.0.1:9402", "seed_nodes": ["127.0.0.1:9401"]})
+n3 = MembrainDistributedIndex.connect(dimension=128, config={
+    "listen_address": "127.0.0.1:9403", "seed_nodes": ["127.0.0.1:9401"]})
+```
+
+**Tighter replication for write-heavy workloads** — raise `replication_factor`, lower `suspicion_timeout`.
+
+**Cluster observability** — poll `cluster_info()` from a sidecar to catch partitions early.
+
+## See also
+
+- [MemscaleDB distributed](/memscaledb/distributed) — architecture and failure modes.
+- [Sharded index](/api-reference/sharded-index) — single-node partitioning when full distribution is overkill.

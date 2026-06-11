@@ -1,0 +1,329 @@
+---
+title: Case-Based Reasoning
+description: Learn from past experiences to improve future planning
+icon: brain
+---
+
+# Case-Based Reasoning
+
+Membrain's case-based reasoning (CBR) system enables agents to learn from their own execution history. Past experiences are stored as **cases** -- each containing a problem, the plan that was tried, the outcome, and a reward signal. When facing new problems, the agent retrieves similar cases and uses them as few-shot examples to guide planning.
+
+<CardGroup cols={2}>
+  <Card title="Store Experiences" icon="database">
+    Automatically store problem-plan-outcome triples with reward signals
+  </Card>
+  <Card title="Retrieve Similar Cases" icon="magnifying-glass">
+    Find relevant past experiences using embedding similarity
+  </Card>
+  <Card title="In-Context Learning" icon="graduation-cap">
+    Build prompts with positive and negative examples from past cases
+  </Card>
+  <Card title="Neural Retriever Training" icon="microchip">
+    Train a classifier to improve case selection over time
+  </Card>
+</CardGroup>
+
+## How It Works
+
+The CBR system follows a **store-retrieve-learn** cycle:
+
+<Steps>
+  <Step title="Store">
+    After each execution, store the experience as a case with a reward signal indicating success or failure.
+  </Step>
+  <Step title="Retrieve">
+    When facing a new problem, retrieve similar past cases using embedding similarity or a trained neural retriever.
+  </Step>
+  <Step title="Prompt">
+    Format retrieved cases as in-context examples -- successful approaches to follow and failed approaches to avoid.
+  </Step>
+  <Step title="Execute">
+    The LLM uses the case context to generate a better plan.
+  </Step>
+  <Step title="Learn">
+    The new execution becomes a case itself, and training data accumulates for improving the retriever.
+  </Step>
+</Steps>
+
+## Storing Cases
+
+Cases are stored as a procedural memory subtype. Each case contains the problem, plan, outcome, and a reward signal.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+
+client = MembrainClient()
+
+# Store a successful experience
+client.store_case(
+    problem="How to fix a flaky integration test",
+    plan="Add retry logic with exponential backoff and increase timeout to 30s",
+    outcome="Test suite passes consistently across 100 runs",
+    reward=1.0,
+)
+
+# Store a failed experience
+client.store_case(
+    problem="How to fix a flaky integration test",
+    plan="Simply increase the timeout to 60s",
+    outcome="Test still fails intermittently under load",
+    reward=0.2,
+)
+```
+
+```javascript JavaScript
+import { MembrainClient } from "membrain";
+
+const client = new MembrainClient();
+
+// Store a successful experience
+client.storeCase(
+  "How to fix a flaky integration test",
+  "Add retry logic with exponential backoff and increase timeout to 30s",
+  "Test suite passes consistently across 100 runs",
+  1.0,
+);
+
+// Store a failed experience
+client.storeCase(
+  "How to fix a flaky integration test",
+  "Simply increase the timeout to 60s",
+  "Test still fails intermittently under load",
+  0.2,
+);
+```
+</CodeGroup>
+
+## Retrieving Cases
+
+Search for similar cases, automatically split into positive (successful) and negative (failed) examples.
+
+<CodeGroup>
+```python Python
+results = client.search_cases("flaky test failures", limit=5)
+
+print(f"Found {len(results.positive_cases)} successful approaches")
+print(f"Found {len(results.negative_cases)} approaches to avoid")
+
+for case in results.positive_cases:
+    print(f"  Problem: {case.problem}")
+    print(f"  Plan: {case.plan}")
+    print(f"  Reward: {case.reward}")
+```
+
+```javascript JavaScript
+const results = client.searchCases("flaky test failures", 5);
+
+console.log(`Found ${results.positive_cases.length} successful approaches`);
+console.log(`Found ${results.negative_cases.length} approaches to avoid`);
+
+for (const entry of results.positive_cases) {
+  console.log(`  Problem: ${entry.problem}`);
+  console.log(`  Plan: ${entry.plan}`);
+  console.log(`  Reward: ${entry.reward}`);
+}
+```
+</CodeGroup>
+
+## Building Prompts with Cases
+
+The `CasePromptBuilder` formats retrieved cases into structured prompt sections.
+
+<CodeGroup>
+```python Python
+from membrain.cbr import NonParametricRetriever, CasePromptBuilder
+
+retriever = NonParametricRetriever(client)
+builder = CasePromptBuilder(max_positive_examples=3, max_negative_examples=2)
+
+cases = retriever.retrieve("optimize database queries")
+context = builder.build_context(cases)
+
+# Use the context in your LLM prompt
+messages = [
+    {"role": "system", "content": "You are a helpful assistant."},
+    {"role": "user", "content": f"{context}\n\nHow should I optimize these queries?"},
+]
+```
+
+```javascript JavaScript
+import { NonParametricRetriever, CasePromptBuilder } from "membrain";
+
+const retriever = new NonParametricRetriever(client);
+const builder = new CasePromptBuilder({
+  maxPositiveExamples: 3,
+  maxNegativeExamples: 2,
+});
+
+const cases = retriever.retrieve("optimize database queries");
+const context = builder.buildContext(cases);
+
+const messages = [
+  { role: "system", content: "You are a helpful assistant." },
+  {
+    role: "user",
+    content: `${context}\n\nHow should I optimize these queries?`,
+  },
+];
+```
+</CodeGroup>
+
+The generated context looks like:
+
+```
+## Successful Past Approaches
+
+### Example 1
+**Problem:** How to optimize slow SQL queries
+**Plan:** Add indexes on frequently filtered columns, use EXPLAIN to identify bottlenecks
+**Outcome:** Query time reduced from 2s to 50ms
+
+## Approaches to Avoid
+
+### Counter-Example 1
+**Problem:** How to optimize slow SQL queries
+**Plan:** Cache all query results in Redis
+**Outcome:** Stale data issues and cache invalidation complexity
+```
+
+## Collecting Training Data
+
+`TrainingDataCollector` turns each agent execution into JSONL training pairs. The file format is identical across Python and JavaScript, so data collected from a Node service can be consumed by the Python trainer.
+
+<CodeGroup>
+```python Python
+from membrain.cbr import TrainingDataCollector
+
+collector = TrainingDataCollector()
+collector.record(
+    query="optimize database queries",
+    retrieved_cases=cases.positive_cases + cases.negative_cases,
+    is_correct=True,
+)
+collector.flush("training_data.jsonl")
+```
+
+```javascript JavaScript
+import { TrainingDataCollector } from "membrain";
+
+const collector = new TrainingDataCollector();
+collector.record(
+  "optimize database queries",
+  [...cases.positive_cases, ...cases.negative_cases],
+  true,
+);
+await collector.flush("training_data.jsonl");
+```
+</CodeGroup>
+
+`ExperienceReplay` orchestrates the store-retrieve-record loop. It stores the new case in Membrain and accumulates training pairs, ready to be flushed to disk.
+
+<CodeGroup>
+```python Python
+from membrain.cbr.experience_replay import ExperienceReplay
+
+replay = ExperienceReplay(client, training_data_path="training_data.jsonl")
+replay.record_execution(
+    problem="Fix the flaky test",
+    plan="Add retry logic",
+    outcome="Tests pass",
+    reward=1.0,
+    query="fix flaky test",
+    retrieved_cases=cases.positive_cases + cases.negative_cases,
+    is_correct=True,
+)
+replay.flush_training_data()
+```
+
+```javascript JavaScript
+import { ExperienceReplay } from "membrain";
+
+const replay = new ExperienceReplay(client, {
+  trainingDataPath: "training_data.jsonl",
+});
+replay.recordExecution({
+  problem: "Fix the flaky test",
+  plan: "Add retry logic",
+  outcome: "Tests pass",
+  reward: 1.0,
+  query: "fix flaky test",
+  retrievedCases: [...cases.positive_cases, ...cases.negative_cases],
+  isCorrect: true,
+});
+await replay.flushTrainingData();
+```
+</CodeGroup>
+
+## Non-Parametric vs Parametric Retrieval
+
+Membrain supports two retrieval strategies:
+
+| Strategy | Training Required | Quality | Speed |
+|----------|------------------|---------|-------|
+| Non-Parametric | No | Good | Fast |
+| Parametric | Yes | Better | Slower |
+
+**Non-Parametric** retrieval uses embedding cosine similarity and works immediately with stored cases. **Parametric** retrieval uses a trained neural classifier to re-rank candidates, improving selection quality as more training data accumulates.
+
+## Training the Neural Retriever
+
+After accumulating enough execution data, train a neural classifier to improve case selection.
+
+<Note>
+Neural retriever training relies on PyTorch and HuggingFace Transformers and is available in `membrain-py` only. The JavaScript package provides `TrainingDataCollector` and `ExperienceReplay` so training data can be collected from Node.js agents and consumed by the Python trainer. `ExperienceReplay.retrain()` in JavaScript throws `MembrainError` pointing at this path.
+</Note>
+
+```python Python
+from membrain.cbr.trainer import RetrieverTrainer
+
+trainer = RetrieverTrainer(
+    training_data_path="training_data.jsonl",
+    output_dir="./checkpoints",
+)
+
+result = trainer.train(
+    epochs=3,
+    batch_size=32,
+    learning_rate=2e-5,
+)
+
+print(f"Best AUC: {result.best_auc:.4f}")
+print(f"Checkpoint: {result.best_checkpoint_path}")
+```
+
+Then use the trained model for retrieval:
+
+```python Python
+from membrain.cbr.parametric_retriever import ParametricRetriever
+
+retriever = ParametricRetriever(
+    client=client,
+    checkpoint_path="./checkpoints/best.pt",
+)
+
+# Now retrieval uses the trained classifier
+cases = retriever.retrieve("new problem to solve")
+```
+
+<Info>
+Training requires PyTorch and the transformers library. Install them with:
+`pip install torch transformers`
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Training Cookbook" icon="book" href="/cookbooks/agent-training">
+    Step-by-step guide to training agents with CBR
+  </Card>
+  <Card title="Memory Types" icon="layer-group" href="/features/memory-types">
+    Learn about all memory types including procedural cases
+  </Card>
+  <Card title="CBR API Reference" icon="code" href="/api-reference/cbr-api">
+    Full API reference for the CBR module
+  </Card>
+  <Card title="AI Agents" icon="robot" href="/cookbooks/ai-agents">
+    Building AI agents with Membrain
+  </Card>
+</CardGroup>

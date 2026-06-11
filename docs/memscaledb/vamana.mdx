@@ -1,0 +1,286 @@
+---
+title: MemscaleDB Vamana
+description: DiskANN-style bounded-degree graph index with alpha-pruning for large-scale approximate nearest-neighbor search
+icon: circle-nodes
+---
+
+# MemscaleDB Vamana
+
+MemscaleDB's Vamana index builds a bounded-degree navigable graph using the algorithm from [DiskANN](https://papers.nips.cc/paper/2019/hash/09853c7fb1d3f8ee67a61b6bf4a7f8e6-Abstract.html) (Microsoft Research). It combines greedy graph traversal from a medoid entry point with RobustPrune neighbor selection that enforces a strict degree bound while maintaining diverse, long-range connections. The result is a graph structure optimized for sequential memory access patterns, making it suitable for very large datasets.
+
+<CardGroup cols={2}>
+  <Card title="Bounded Degree" icon="circle-nodes" color="#10b981">
+    Every node has at most `max_degree` neighbors. Predictable memory usage per vector.
+  </Card>
+  <Card title="Alpha Pruning" icon="scissors">
+    RobustPrune keeps diverse, long-range edges for better navigability. Alpha > 1.0 promotes diversity over pure proximity.
+  </Card>
+  <Card title="Medoid Entry Point" icon="bullseye">
+    Search starts from the medoid (vector closest to the global centroid) for a well-centered entry into the graph.
+  </Card>
+  <Card title="Sequential Access" icon="hard-drive">
+    Greedy beam search with bounded degree produces sequential memory access patterns, ideal for cache and disk performance.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+1. **Medoid selection**: The vector closest to the global centroid is chosen as the entry point for all searches.
+2. **Graph initialization**: Each node receives random initial edges.
+3. **Iterative refinement**: For each node (in random order), a greedy search from the medoid finds the best neighborhood, then RobustPrune selects at most `max_degree` neighbors.
+4. **Reverse edge updates**: When node A selects B as a neighbor, B's neighbor list is also updated. If B exceeds `max_degree`, RobustPrune trims its list.
+5. **Query**: Greedy beam search from the medoid with beam width `search_list_size`. Visited nodes are tracked to avoid cycles.
+
+### RobustPrune
+
+The RobustPrune algorithm selects neighbors that are both close to the node and diverse (spread in different directions). For each candidate `p`:
+- If `distance(node, p) <= alpha * distance(p, nearest_selected)`, then `p` is selected as a neighbor.
+- Alpha > 1.0 (default 1.2) relaxes the criterion, keeping edges to farther-but-diverse nodes. This creates "shortcut" edges that speed up graph traversal.
+
+## Usage
+
+The Vamana index requires training data to build the graph. Use the `build()` class method.
+
+<CodeGroup>
+```python Python
+import uuid
+from membrain import MembrainVamanaIndex
+
+# Prepare your data -- IDs must be UUID strings
+ids = [str(uuid.uuid4()) for _ in range(1000)]
+vectors = [[0.1, 0.2, ...] for _ in range(1000)]  # float arrays, all same dimension
+
+# Build the Vamana index -- dimension is the first positional argument
+index = MembrainVamanaIndex.build(
+    dimension=768,
+    ids=ids,
+    vectors=vectors,
+    config={
+        "max_degree": 32,
+        "alpha": 1.2,
+        "search_list_size": 64,
+    },
+)
+
+# Search
+results = index.search(query_embedding, k=10)
+for r in results:
+    print(f"{r['id']}  distance={r['distance']:.4f}")
+
+# Add more vectors after build
+index.add(str(uuid.uuid4()), new_embedding)
+
+index.close()
+```
+
+```javascript JavaScript
+import { MembrainVamanaIndex } from "membrain";
+
+const index = MembrainVamanaIndex.build(ids, vectors, {
+  dimension: 768,
+  max_degree: 32,
+  alpha: 1.2,
+  search_list_size: 64,
+});
+
+const results = index.search(queryEmbedding, 10);
+for (const r of results) {
+  console.log(`${r.id}  distance=${r.distance.toFixed(4)}`);
+}
+
+index.add(crypto.randomUUID(), newEmbedding);
+
+index.close();
+```
+
+```rust Rust
+use memscaledb::{VamanaIndex, VamanaConfig, VectorIndex};
+
+let config = VamanaConfig {
+    max_degree: 32,
+    alpha: 1.2,
+    search_list_size: 64,
+    ..VamanaConfig::default()
+};
+
+let vectors_refs: Vec<&[f32]> = vectors.iter().map(|v| v.as_slice()).collect();
+let mut index = VamanaIndex::build(&ids, &vectors_refs, 768, config)?;
+
+let results = index.search(&query_embedding, 10)?;
+
+// Incremental add
+index.add(VectorId::new(), &new_embedding)?;
+```
+</CodeGroup>
+
+## Configuration
+
+| Parameter | Default | Description |
+|---|---|---|
+| `dimension` | **required** | Vector dimension (must match your embedding model) |
+| `max_degree` | 64 | Maximum out-degree per node (R). Higher = better recall but more memory per node |
+| `alpha` | 1.2 | RobustPrune diversity parameter (>= 1.0). Higher = more diverse, long-range edges |
+| `search_list_size` | 128 | Beam width for greedy search (L). Higher = better recall, slower search |
+| `distance_metric` | `Cosine` | Distance function: `Cosine`, `Euclidean`, `DotProduct`, `Manhattan`, `Chebyshev` |
+| `seed` | 42 | Seed for deterministic graph construction |
+| `cache_config.capacity` | 1024 | Maximum number of cached query results |
+| `cache_config.enabled` | true | Whether the LRU query cache is active |
+
+### Tuning Guidelines
+
+**max_degree (R)** controls graph density:
+- Lower (16-32): Less memory per node, potentially lower recall
+- Default (64): Good balance for most datasets
+- Higher (96-128): Better recall for very large or high-dimensional datasets
+
+**alpha** controls edge diversity:
+- 1.0: Pure proximity-based selection (like a Delaunay graph)
+- 1.2 (default): Moderate diversity, good for most workloads
+- 1.4-1.5: More long-range edges, better for high-dimensional data
+
+**search_list_size (L)** controls search accuracy:
+- Lower (32-64): Faster but may miss some neighbors
+- Default (128): Good recall for most use cases
+- Higher (256-512): Near-perfect recall at the cost of latency
+
+<Note>
+  For best results, set `search_list_size >= max_degree`. The beam width should be at least as large as the maximum number of neighbors any node can have.
+</Note>
+
+## Operations
+
+### Filtered Search
+
+Restrict results to a subset of vector IDs. Filtered nodes are skipped during greedy traversal.
+
+<CodeGroup>
+```python Python
+results = index.search_with_filter(
+    query_embedding, k=10,
+    allowed_ids=[ids[0], ids[2], ids[4]],
+)
+```
+
+```javascript JavaScript
+const results = index.searchWithFilter(
+  queryEmbedding, 10,
+  [ids[0], ids[2], ids[4]],
+);
+```
+</CodeGroup>
+
+### Batch Search
+
+Run multiple queries in parallel.
+
+<CodeGroup>
+```python Python
+queries = [query1, query2, query3]
+batch_results = index.batch_search(queries, k=10)
+```
+
+```javascript JavaScript
+const batchResults = index.batchSearch([query1, query2, query3], 10);
+```
+</CodeGroup>
+
+### Observability
+
+<CodeGroup>
+```python Python
+metrics = index.metrics()
+print(f"Searches: {metrics['searches']}")
+print(f"Distance ops: {metrics['distance_computations']}")
+```
+
+```javascript JavaScript
+const m = index.metrics();
+console.log(`Searches: ${m.searches}`);
+console.log(`Distance ops: ${m.distance_computations}`);
+```
+</CodeGroup>
+
+## When to Use MemscaleDB Vamana
+
+| Scenario | Vamana Index? |
+|---|---|
+| Large datasets (100k+ vectors) with sequential access patterns | Yes -- bounded degree enables cache-friendly traversal |
+| Need high recall (>= 90%) with predictable memory | Yes -- bounded degree gives predictable per-node cost |
+| Need dynamic inserts without rebuild | Partially -- incremental add works, but graph quality may degrade over time |
+| Small datasets (under 10k) | No -- use [Flat](/memscaledb/flat) for exact search |
+| Need mature, battle-tested approximate search | Use [HNSW](/memscaledb/hnsw) which is more established |
+| Streaming inserts with no training phase | No -- use [LSH](/memscaledb/lsh) or [HNSW](/memscaledb/hnsw) |
+
+## Concurrent Access
+
+`ConcurrentVamanaIndex` allows safe concurrent reads and additional inserts after the initial build.
+
+<CodeGroup>
+```python Python
+import threading
+import uuid
+from membrain import ConcurrentVamanaIndex
+
+ids = [str(uuid.uuid4()) for _ in range(1000)]
+vectors = [[float(i % 64) / 64.0] * 64 for i in range(1000)]
+
+index = ConcurrentVamanaIndex.build(ids, vectors, dimension=64)
+
+def search_worker():
+    results = index.search([0.5] * 64, k=10)
+    assert len(results) > 0
+
+threads = [threading.Thread(target=search_worker) for _ in range(8)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+index.close()
+```
+
+```javascript JavaScript
+import { ConcurrentVamanaIndex } from "membrain";
+
+const ids = Array.from({ length: 1000 }, () => crypto.randomUUID());
+const vectors = Array.from({ length: 1000 }, (_, i) =>
+  Array(64).fill((i % 64) / 64.0)
+);
+
+const index = ConcurrentVamanaIndex.build(ids, vectors, 64);
+const results = index.search(Array(64).fill(0.5), 10);
+console.log(`Found ${results.length} results`);
+index.close();
+```
+</CodeGroup>
+
+See the [Concurrent Indices](/memscaledb/concurrent) page for a full reference.
+
+## Comparison: Vamana vs HNSW
+
+| | Vamana | HNSW |
+|---|---|---|
+| **Structure** | Single-layer bounded-degree graph | Multi-layer skip-list-like graph |
+| **Degree bound** | Strict max_degree | Soft (m per layer, m0 at layer 0) |
+| **Entry point** | Medoid (data-dependent) | Random top-layer node |
+| **Build requires all data** | Yes | No (incremental by design) |
+| **Memory per vector** | Predictable (`max_degree * 4 bytes` for edges) | Variable (depends on layer assignment) |
+| **Access pattern** | Sequential (cache/disk-friendly) | Random (pointer-chasing) |
+| **Best for** | Large on-disk datasets, batch builds | Dynamic workloads, real-time inserts |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MemscaleDB HNSW" icon="bolt" href="/memscaledb/hnsw">
+    Multi-layer graph search with dynamic inserts
+  </Card>
+  <Card title="MemscaleDB IVF" icon="table-cells" href="/memscaledb/ivf">
+    Partition-based search for large datasets
+  </Card>
+  <Card title="MemscaleDB Flat" icon="bullseye-arrow" href="/memscaledb/flat">
+    Exact brute-force search for accuracy baselines
+  </Card>
+  <Card title="MemscaleDB Sharded" icon="cubes" href="/memscaledb/sharded">
+    Multi-shard HNSW for very large datasets
+  </Card>
+</CardGroup>

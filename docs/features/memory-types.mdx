@@ -1,0 +1,147 @@
+---
+title: Memory Types
+description: Multi-layered memory system for LLMs
+icon: brain
+---
+
+# Memory Types
+
+Membrain organizes knowledge into four layers, each matched to a distinct LLM use case.
+
+<CardGroup cols={2}>
+  <Card title="Episodic" icon="clock-rotate-left">Events and observations — conversation history, user actions.</Card>
+  <Card title="Semantic" icon="book">Facts, preferences, entities, concepts — long-term knowledge.</Card>
+  <Card title="Procedural" icon="list-check">Workflows, skills, patterns — how to do things.</Card>
+  <Card title="Agent State" icon="bullseye">Goals and tasks — what the agent is pursuing right now.</Card>
+</CardGroup>
+
+Every `store_*` method returns a `StoreResult` with the new memory's ID. Every layer is searchable via `client.search(...)`.
+
+## Episodic
+
+Time-ordered records of what happened.
+
+<CodeGroup>
+```python Python
+client.store_event("user_message", "What is Python?")
+client.store_observation("User prefers dark mode")
+```
+
+```javascript JavaScript
+client.storeEvent("user_message", "What is Python?");
+client.storeObservation("User prefers dark mode");
+```
+</CodeGroup>
+
+Use events for anything with a timestamp you may want to replay; use observations for passive signals.
+
+## Semantic
+
+Facts and structured knowledge. Attach a confidence score so the system knows when to trust or re-verify.
+
+<CodeGroup>
+```python Python
+client.store_fact("Python was created in 1991", confidence=0.95)
+client.store_preference(holder="user", subject="code style",
+                        preference="4-space indentation", strength="strong")
+client.store_entity(name="OpenAI", entity_type="organization")
+client.store_concept(name="HNSW", definition="Hierarchical Navigable Small World graph index")
+```
+
+```javascript JavaScript
+client.storeFact("Python was created in 1991", 0.95);
+client.storePreference("user", "code style", "4-space indentation", "strong");
+client.storeEntity("OpenAI", "organization");
+client.storeConcept("HNSW", "Hierarchical Navigable Small World graph index");
+```
+</CodeGroup>
+
+`strength` accepts `"weak" | "moderate" | "strong" | "absolute"`.
+
+## Procedural
+
+Reusable knowledge about *how* to do things. Feed this into an agent's system prompt when it tackles a matching problem.
+
+<CodeGroup>
+```python Python
+client.store_workflow(name="deploy-service",
+                      steps=["run tests", "build image", "push to registry", "update k8s"])
+client.store_skill(name="debug-sql", description="Read query plans and add indexes.")
+client.store_pattern(name="circuit-breaker",
+                     description="Trip after N failures; half-open retries probe recovery.")
+```
+
+```javascript JavaScript
+client.storeWorkflow("deploy-service",
+  ["run tests", "build image", "push to registry", "update k8s"]);
+client.storeSkill("debug-sql", "Read query plans and add indexes.");
+client.storePattern("circuit-breaker",
+  "Trip after N failures; half-open retries probe recovery.");
+```
+</CodeGroup>
+
+## Agent state
+
+What the agent is currently pursuing. Goals are long-lived; tasks are the next concrete step.
+
+<CodeGroup>
+```python Python
+goal = client.store_goal("Reduce p99 latency to under 200ms")
+task = client.store_task(description="Profile hot endpoints", goal_id=goal.id)
+```
+
+```javascript JavaScript
+const goal = client.storeGoal("Reduce p99 latency to under 200ms");
+const task = client.storeTask("Profile hot endpoints", goal.id);
+```
+</CodeGroup>
+
+## Using memories with an LLM
+
+A compact loop: retrieve relevant memories, build a prompt, call the LLM.
+
+<CodeGroup>
+```python Python
+from openai import OpenAI
+llm = OpenAI()
+
+results = client.search("user coding preferences", limit=5)
+context = "\n".join(f"- [{m.memory_type}] {m.content}" for m in results.memories)
+
+reply = llm.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": f"Relevant memory:\n{context}"},
+        {"role": "user", "content": "Suggest an editor theme for me."},
+    ],
+)
+print(reply.choices[0].message.content)
+```
+
+```javascript JavaScript
+import OpenAI from "openai";
+const openai = new OpenAI();
+
+const results = client.search("user coding preferences", 5);
+const context = results.memories
+  .map(m => `- [${m.memory_type}] ${m.content}`).join("\n");
+
+const reply = await openai.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [
+    { role: "system", content: `Relevant memory:\n${context}` },
+    { role: "user", content: "Suggest an editor theme for me." },
+  ],
+});
+console.log(reply.choices[0].message.content);
+```
+</CodeGroup>
+
+For the full loop (automatic retrieval, extraction, case learning) use [`Conversation`](/api-reference/conversation).
+
+## See also
+
+- [Semantic search](/features/semantic-search) — query any memory type.
+- [CBR API](/api-reference/cbr-api) — learn from past experience.
+- [Memory operations reference](/api-reference/memory-operations) — every `store_*` signature.
+- [Rust API](/api-reference/rust-api) — native bindings for all memory types.

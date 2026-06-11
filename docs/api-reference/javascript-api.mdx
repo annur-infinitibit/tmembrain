@@ -1,0 +1,728 @@
+---
+title: JavaScript API
+description: Complete JavaScript/TypeScript API documentation for Membrain
+icon: js
+---
+
+# JavaScript API Reference
+
+Complete JavaScript/TypeScript API for integrating Membrain with your LLM applications.
+
+## Installation
+
+```bash
+npm install membrain
+```
+
+## Quick LLM Integration Example
+
+```javascript
+import { MembrainClient } from 'membrain';
+import { ChatOpenAI } from 'langchain/chat_models/openai';
+
+const memory = new MembrainClient();
+const llm = new ChatOpenAI({ modelName: 'gpt-4' });
+
+memory.storeFact("JavaScript is versatile for both frontend and backend", 0.9);
+
+const userQuery = "Why use JavaScript?";
+const context = memory.search(userQuery, 3);
+const contextText = context.memories.map(m => m.content).join('\n');
+
+const response = await llm.call([
+    { role: 'system', content: `Context:\n${contextText}` },
+    { role: 'user', content: userQuery }
+]);
+
+console.log(response);
+memory.close();
+```
+
+## MembrainClient
+
+The main client for storing and querying memories in LLM applications.
+
+### Constructor
+
+```typescript
+new MembrainClient(config?: Record<string, any>, libPath?: string)
+```
+
+<ParamField path="config" type="Record<string, any>">
+  Optional configuration object
+</ParamField>
+
+<ParamField path="libPath" type="string">
+  Optional path to the shared library (overrides auto-detection)
+</ParamField>
+
+## Store Methods
+
+<AccordionGroup>
+  <Accordion title="storeFact">
+    ### `storeFact(statement: string, confidence?: number): StoreResult`
+
+    Store a factual statement in semantic memory. Default confidence: `0.8`.
+
+    ```javascript
+    const result = client.storeFact("JavaScript was created by Brendan Eich", 0.95);
+    ```
+  </Accordion>
+
+  <Accordion title="storePreference">
+    ### `storePreference(holder: string, subject: string, preference: string, strength?: string): StoreResult`
+
+    Store a preference relationship. Default strength: `"moderate"`. Values: `"weak"`, `"moderate"`, `"strong"`.
+
+    ```javascript
+    client.storePreference("Alice", "coffee", "loves Ethiopian coffee", "strong");
+    ```
+  </Accordion>
+
+  <Accordion title="storeEvent">
+    ### `storeEvent(eventType: string, description: string): StoreResult`
+
+    Store an episodic event.
+
+    ```javascript
+    client.storeEvent("user_login", "User logged in from mobile app");
+    ```
+  </Accordion>
+
+  <Accordion title="storeObservation">
+    ### `storeObservation(content: string): StoreResult`
+
+    Store a general observation.
+
+    ```javascript
+    client.storeObservation("User prefers dark mode");
+    ```
+  </Accordion>
+
+  <Accordion title="storeConcept">
+    ### `storeConcept(name: string, definition: string): StoreResult`
+
+    Store a concept definition.
+
+    ```javascript
+    client.storeConcept("microservice", "A software architecture pattern...");
+    ```
+  </Accordion>
+
+  <Accordion title="storeEntity">
+    ### `storeEntity(name: string, entityType: string): StoreResult`
+
+    Store an entity reference.
+
+    ```javascript
+    client.storeEntity("Alice", "person");
+    ```
+  </Accordion>
+
+  <Accordion title="storeWorkflow">
+    ### `storeWorkflow(name: string, description: string): StoreResult`
+
+    Store a workflow or process.
+
+    ```javascript
+    client.storeWorkflow("deploy_app", "1. Run tests 2. Build image 3. Deploy");
+    ```
+  </Accordion>
+
+  <Accordion title="storeSkill">
+    ### `storeSkill(name: string, description: string): StoreResult`
+
+    Store an agent skill or capability.
+
+    ```javascript
+    client.storeSkill("code_review", "Analyzes code for bugs and style issues");
+    ```
+  </Accordion>
+
+  <Accordion title="storePattern">
+    ### `storePattern(name: string, description: string, patternType: string): StoreResult`
+
+    Store a recognized pattern.
+
+    ```javascript
+    client.storePattern("singleton", "Ensures a class has only one instance", "design_pattern");
+    ```
+  </Accordion>
+
+  <Accordion title="storeGoal">
+    ### `storeGoal(description: string): StoreResult`
+
+    Store an agent goal.
+
+    ```javascript
+    client.storeGoal("Improve code coverage to 90%");
+    ```
+  </Accordion>
+
+  <Accordion title="storeTask">
+    ### `storeTask(title: string): StoreResult`
+
+    Store a task to be completed.
+
+    ```javascript
+    client.storeTask("Refactor authentication module");
+    ```
+  </Accordion>
+
+  <Accordion title="storeCase">
+    ### `storeCase(problem: string, plan: string, outcome: string, reward?: number, embedding?: number[]): StoreResult`
+
+    Store a case for case-based reasoning (CBR).
+
+    ```javascript
+    client.storeCase(
+      "User asked about JavaScript async patterns",
+      "Explained promises, async/await, and error handling",
+      "User understood the patterns",
+      0.9
+    );
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Query Methods
+
+### `search(query: string, limit?: number, filters?: SearchFilters): SearchResults`
+
+Search for memories matching a query using semantic similarity.
+
+<ParamField path="query" type="string" required>
+  The search query text.
+</ParamField>
+
+<ParamField path="limit" type="number" default={10}>
+  Maximum number of results to return.
+</ParamField>
+
+<ParamField path="filters" type="SearchFilters">
+  Optional filter criteria:
+  - `memory_types`: array of type strings
+  - `min_confidence`: minimum confidence score (0.0-1.0)
+  - `tags`: array of tag strings (any match)
+  - `agent_id`: UUID string of the agent
+  - `metadata`: key-value pairs (all must match exactly)
+</ParamField>
+
+```javascript
+const results = client.search("JavaScript programming", 5);
+results.memories.forEach(m =>
+  console.log(`${m.content} (score: ${m.score}, type: ${m.memory_type})`)
+);
+
+const filtered = client.search("research papers", 10, {
+  memory_types: ["semantic_fact"],
+  min_confidence: 0.8,
+  metadata: { source: "arxiv" },
+});
+```
+
+### `searchCases(query: string, limit?: number, positiveRewardThreshold?: number): CaseSearchResults`
+
+Search for cases, split into positive and negative examples by reward threshold.
+
+```javascript
+const cases = client.searchCases("async patterns in JavaScript", 5);
+for (const c of cases.positive_cases) {
+  console.log(`Good: ${c.problem} -> ${c.outcome}`);
+}
+```
+
+### `get(id: string): MemoryInfo | null`
+
+Retrieve a specific memory by ID.
+
+### `delete(id: string): boolean`
+
+Delete a memory by ID.
+
+### `count(): number`
+
+Get total number of stored memories.
+
+### `stats(): StorageStats`
+
+Get detailed storage statistics.
+
+### `close(): void`
+
+Explicitly release resources.
+
+---
+
+## MembrainGraph
+
+Graph-based memory layer with multi-hop traversal.
+
+### Constructor
+
+```typescript
+new MembrainGraph(config?: Record<string, any>, libPath?: string)
+```
+
+### Node Operations
+
+- `addNode(memoryId: string, embedding: number[], confidence?: number): void`
+- `removeNode(memoryId: string): void`
+
+### Query
+
+```javascript
+const result = graph.query([0.1, 0.2, ...], 3, 5);
+result.nodes.forEach(node =>
+  console.log(`${node.memory_id}: ${node.score} (hop: ${node.hop_distance})`)
+);
+```
+
+### Info and Pruning
+
+- `nodeCount(): number`
+- `edgeCount(): number`
+- `prune(): GraphPruningResult`
+
+### Persistence
+
+- `save(): string` -- Serialize to base64 string.
+- `static load(data: string): MembrainGraph` -- Restore from base64 string.
+
+---
+
+## Vector Indices
+
+MemscaleDB vector indices are available directly in JavaScript for low-level vector operations.
+
+### MembrainIndex (HNSW)
+
+```javascript
+import { MembrainIndex } from "membrain";
+
+const index = new MembrainIndex(1536);
+// Or with config:
+// const index = new MembrainIndex(undefined, { dimension: 1536, m: 32 });
+
+index.add("doc-1", embedding);
+const results = index.search(queryEmbedding, 10);
+index.remove("doc-1");
+
+// Persistence
+const data = index.save();
+const restored = MembrainIndex.load(data);
+
+index.close();
+```
+
+### MembrainMmapIndex (Read-only)
+
+```javascript
+import { MembrainMmapIndex } from "membrain";
+
+const index = new MembrainMmapIndex("/path/to/index.bin");
+const results = index.search(queryEmbedding, 10);
+index.close();
+```
+
+### MembrainFlatIndex
+
+```javascript
+import { MembrainFlatIndex } from "membrain";
+
+const index = new MembrainFlatIndex(1536);
+index.add("id-1", embedding);
+const results = index.search(queryEmbedding, 5);
+index.close();
+```
+
+### MembrainIvfIndex
+
+Requires training data for initial build:
+
+```javascript
+import { MembrainIvfIndex } from "membrain";
+
+const index = MembrainIvfIndex.build(ids, vectors, {
+  dimension: 768,
+  num_cells: 32,
+  nprobe: 4,
+});
+
+const results = index.search(queryEmbedding, 10);
+index.add(crypto.randomUUID(), newEmbedding);
+index.close();
+```
+
+### MembrainLshIndex
+
+```javascript
+import { MembrainLshIndex } from "membrain";
+
+const index = new MembrainLshIndex(1536);
+index.add("id-1", embedding);
+const results = index.search(queryEmbedding, 10);
+index.close();
+```
+
+### MembrainVamanaIndex
+
+Requires training data for initial build:
+
+```javascript
+import { MembrainVamanaIndex } from "membrain";
+
+const index = MembrainVamanaIndex.build(ids, vectors, {
+  dimension: 768,
+  max_degree: 32,
+  alpha: 1.2,
+  search_list_size: 64,
+});
+
+const results = index.search(queryEmbedding, 10);
+index.close();
+```
+
+### MembrainShardedIndex
+
+```javascript
+import { MembrainShardedIndex } from "membrain";
+
+const index = MembrainShardedIndex.build(ids, vectors, {
+  dimension: 768,
+  num_shards: 16,
+  nprobe: 3,
+});
+
+const results = index.search(queryVector, 10);
+const data = index.save();
+const restored = MembrainShardedIndex.load(data);
+index.close();
+```
+
+### Common Index Methods
+
+All indices share these methods:
+
+| Method | Description |
+|---|---|
+| `add(id, vector)` | Add a vector |
+| `remove(id)` | Remove a vector by ID |
+| `search(vector, k)` | Search for k nearest neighbors |
+| `searchWithFilter(vector, k, allowedIds)` | Search with an ID allowlist |
+| `batchSearch(queries, k)` | Run multiple queries in parallel |
+| `metrics()` | Get performance counters |
+| `len()` | Get vector count |
+| `close()` | Release FFI resources |
+
+---
+
+## Concurrent Indices
+
+Thread-safe variants for multi-threaded workloads. Can be shared across worker threads.
+
+### Available Types
+
+| Class | Construction | Best for |
+|---|---|---|
+| `ConcurrentFlatIndex` | `new ConcurrentFlatIndex(dimension)` | Exact search, small datasets |
+| `ConcurrentHnswIndex` | `new ConcurrentHnswIndex(dimension)` | Graph-based ANN, general purpose |
+| `ConcurrentIvfIndex` | `ConcurrentIvfIndex.build(ids, vectors, dimension)` | Large datasets, tunable recall |
+| `ConcurrentLshIndex` | `new ConcurrentLshIndex(dimension)` | High-dimensional hashing |
+| `ConcurrentVamanaIndex` | `ConcurrentVamanaIndex.build(ids, vectors, dimension)` | DiskANN-style graph |
+
+### Usage
+
+```javascript
+import { ConcurrentHnswIndex } from "membrain";
+
+const index = new ConcurrentHnswIndex(1536);
+
+index.add(crypto.randomUUID(), Array(1536).fill(0.5));
+const results = index.search(Array(1536).fill(0.5), 10);
+
+// Clone to share with another worker
+const clone = index.clone();
+clone.add(crypto.randomUUID(), Array(1536).fill(0.3));
+console.log(index.len()); // Both handles share the same data
+
+clone.close();
+index.close();
+```
+
+### Optional Config
+
+```javascript
+const index = new ConcurrentHnswIndex(1536, {
+  m: 16,
+  ef_construction: 200,
+  ef_search: 100,
+  distance_metric: "Cosine",
+});
+```
+
+---
+
+## MembrainDistributedIndex
+
+Distributed vector index using consistent hashing with SWIM gossip protocol.
+
+```javascript
+import { MembrainDistributedIndex } from "membrain";
+
+const node = MembrainDistributedIndex.connect({
+  dimension: 128,
+  listen_address: "127.0.0.1:9400",
+  replication_factor: 3,
+});
+
+node.add(crypto.randomUUID(), embedding);
+const results = node.search(queryVector, 10);
+
+const info = node.clusterInfo();
+console.log(`Nodes: ${info.node_count}`);
+
+node.close();
+```
+
+---
+
+## MultiTenantIndex
+
+Namespace-based multi-tenancy for isolated vector spaces.
+
+```javascript
+import { MultiTenantIndex } from "membrain";
+
+const index = new MultiTenantIndex({ dimension: 1536, indexType: "hnsw" });
+
+index.createTenant("user-alice");
+index.createTenant("user-bob");
+
+index.add("user-alice", crypto.randomUUID(), embedding);
+const results = index.search("user-alice", queryEmbedding, 10);
+
+const tenants = index.listTenants();
+index.deleteTenant("user-bob");
+
+index.close();
+```
+
+Supported index types: `"flat"`, `"hnsw"`, `"lsh"`.
+
+---
+
+## Rerankers
+
+Provider-backed rerankers for improving search quality.
+
+### Available Rerankers
+
+| Class | Provider |
+|---|---|
+| `CohereReranker` | Cohere Rerank API |
+| `JinaReranker` | Jina Reranker API |
+| `OpenAIReranker` | OpenAI API |
+| `AnthropicReranker` | Anthropic API |
+
+### Usage
+
+```javascript
+import { CohereReranker } from "membrain";
+
+const reranker = new CohereReranker({ apiKey: "your-key", model: "rerank-v3.5" });
+
+const results = reranker.rerank({
+  query: "What is JavaScript?",
+  documents: ["JavaScript is a programming language", "Java is compiled"],
+  topK: 5,
+});
+
+for (const r of results.results) {
+  console.log(`Score: ${r.score.toFixed(4)}  Doc: ${r.document}`);
+}
+```
+
+All rerankers implement the `BaseReranker` interface.
+
+---
+
+## Vector Backends
+
+Pluggable vector backends for external vector databases. All implement the `VectorBackend` interface.
+
+| Export | Backend |
+|---|---|
+| `SimpleInMemoryBackend` | In-memory (default) |
+| `QdrantBackend` | Qdrant |
+| `ChromaBackend` | ChromaDB |
+| `FAISSBackend` | FAISS |
+| `PineconeBackend` | Pinecone |
+| `MilvusBackend` | Milvus |
+| `LanceDBBackend` | LanceDB |
+
+See the [Vector Databases](/integrations/vector-databases) page for configuration details.
+
+---
+
+## TypeScript Types
+
+### StoreResult
+
+```typescript
+interface StoreResult {
+  success: boolean;
+  id: string | null;
+  merged_with: string | null;
+  rejection_reason: string | null;
+  duration_ms: number;
+}
+```
+
+### SearchResults
+
+```typescript
+interface SearchResults {
+  memories: MemoryEntry[];
+  was_gated: boolean;
+  duration_ms: number;
+}
+```
+
+### MemoryEntry
+
+```typescript
+interface MemoryEntry {
+  id: string;
+  content: string;
+  score: number;
+  memory_type: string;
+}
+```
+
+### IndexSearchResult
+
+```typescript
+interface IndexSearchResult {
+  id: string;
+  score: number;
+  distance: number;
+}
+```
+
+### IndexMetrics
+
+```typescript
+interface IndexMetrics {
+  searches: number;
+  inserts: number;
+  deletes: number;
+  compactions: number;
+  cache_hits: number;
+  cache_misses: number;
+  distance_computations: number;
+}
+```
+
+### SearchFilters
+
+```typescript
+interface SearchFilters {
+  memory_types?: string[];
+  min_confidence?: number;
+  tags?: string[];
+  agent_id?: string;
+  metadata?: Record<string, unknown>;
+}
+```
+
+### GraphQueryResult
+
+```typescript
+interface GraphQueryResult {
+  nodes: GraphScoredNode[];
+  traversed_edges: GraphTraversalStep[];
+  hops_performed: number;
+  nodes_visited: number;
+}
+```
+
+### GraphPruningResult
+
+```typescript
+interface GraphPruningResult {
+  edges_removed: number;
+  nodes_removed: number;
+  edges_remaining: number;
+  nodes_remaining: number;
+}
+```
+
+### CaseEntry
+
+```typescript
+interface CaseEntry {
+  id: string;
+  problem: string;
+  plan: string;
+  outcome: string;
+  reward: number;
+  score: number;
+}
+```
+
+### CaseSearchResults
+
+```typescript
+interface CaseSearchResults {
+  positive_cases: CaseEntry[];
+  negative_cases: CaseEntry[];
+  duration_ms: number;
+}
+```
+
+---
+
+## Error Handling
+
+```javascript
+import { MembrainClient, MembrainError } from 'membrain';
+
+try {
+  const client = new MembrainClient();
+  client.storeFact("test");
+} catch (error) {
+  if (error instanceof MembrainError) {
+    console.error(`Error: ${error.message}, code: ${error.code}`);
+  }
+}
+```
+
+## Environment Variables
+
+<ResponseField name="MEMBRAIN_LIB_PATH" type="string">
+  Path to shared library (overrides auto-detection)
+</ResponseField>
+
+## Thread Safety
+
+<Warning>
+  `MembrainClient` and `MembrainGraph` are **not** thread-safe. Create separate instances per worker thread or use synchronization. For thread-safe vector operations, use the `Concurrent*Index` classes.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Python API" icon="python" href="/api-reference/python-api">
+    Python API Reference
+  </Card>
+  <Card title="Rust API" icon="gear" href="/api-reference/rust-api">
+    Rust API reference
+  </Card>
+  <Card title="MemscaleDB" icon="bolt" href="/memscaledb/overview">
+    Vector database deep dive
+  </Card>
+  <Card title="Cookbooks" icon="book-open" href="/cookbooks/basic-usage">
+    Practical examples and patterns
+  </Card>
+</CardGroup>

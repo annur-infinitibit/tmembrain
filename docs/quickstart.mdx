@@ -1,0 +1,423 @@
+---
+title: Quickstart
+description: Get started with Membrain in under 5 minutes
+---
+
+# Quickstart Guide
+
+Get started with Membrain in under 5 minutes.
+
+## Installation
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install membrain
+    ```
+
+    **Library Path Setup:**
+
+    Membrain needs the native library. It auto-detects in common locations, or set:
+
+    ```bash
+    export MEMBRAIN_LIB_PATH=/path/to/libmembrain_ffi.so
+    ```
+  </Tab>
+
+  <Tab title="JavaScript">
+    ```bash
+    npm install membrain
+    ```
+
+    **Library Path Setup:**
+
+    ```bash
+    export MEMBRAIN_LIB_PATH=/path/to/libmembrain_ffi.so
+    ```
+  </Tab>
+
+  <Tab title="Rust">
+    Add to `Cargo.toml`:
+    ```toml
+    [dependencies]
+    membrain-ffi = { path = "crates/membrain-ffi" }
+    ```
+
+    Or use the standalone vector index:
+    ```toml
+    [dependencies]
+    memscaledb = { path = "crates/memscaledb" }
+    ```
+  </Tab>
+</Tabs>
+
+## Your First LLM with Memory
+
+<CodeGroup>
+```python Python with OpenAI
+from membrain import MembrainClient
+from openai import OpenAI
+
+# Initialize Membrain and LLM
+memory = MembrainClient()
+llm = OpenAI()
+
+# Store knowledge in memory
+memory.store_fact("Python supports multiple programming paradigms", 0.9)
+memory.store_fact("Python has extensive libraries for AI/ML", 0.95)
+
+# User asks a question
+user_question = "Why should I use Python for AI?"
+
+# Retrieve relevant context from memory
+context = memory.search(user_question, limit=3)
+context_text = "\n".join([m.content for m in context.memories])
+
+# Generate LLM response with memory context
+response = llm.chat.completions.create(
+    model="gpt-4",
+    messages=[
+        {"role": "system", "content": f"Use this context:\n{context_text}"},
+        {"role": "user", "content": user_question}
+    ]
+)
+
+print(response.choices[0].message.content)
+
+# Store the interaction for future reference
+memory.store_event("chat", f"User asked: {user_question}")
+
+memory.close()
+```
+
+```javascript JavaScript with LangChain
+import { MembrainClient } from 'membrain';
+import { ChatOpenAI } from 'langchain/chat_models/openai';
+
+// Initialize Membrain and LLM
+const memory = new MembrainClient();
+const llm = new ChatOpenAI({ modelName: 'gpt-4' });
+
+// Store knowledge
+memory.storeFact("JavaScript is widely used for web development", 0.9);
+memory.storeFact("Node.js enables server-side JavaScript", 0.95);
+
+// User asks a question
+const userQuestion = "What makes JavaScript popular?";
+
+// Retrieve context
+const context = memory.search(userQuestion, 3);
+const contextText = context.memories.map(m => m.content).join('\n');
+
+// Generate LLM response with memory
+const response = await llm.call([
+  { role: 'system', content: `Context:\n${contextText}` },
+  { role: 'user', content: userQuestion }
+]);
+
+console.log(response);
+
+// Store interaction
+memory.storeEvent("chat", `User asked: ${userQuestion}`);
+
+memory.close();
+```
+
+```rust Rust
+use membrain_ffi::MembrainClient;
+
+let client = MembrainClient::new().expect("failed to create client");
+
+// Store knowledge in memory
+client.store_fact("Rust focuses on memory safety and performance", 0.9).unwrap();
+client.store_fact("Rust has zero-cost abstractions", 0.95).unwrap();
+
+// Retrieve relevant context
+let results = client.search("Why use Rust?", 3).unwrap();
+let context: Vec<&str> = results.memories.iter().map(|m| m.content.as_str()).collect();
+
+// Pass context to your LLM of choice
+println!("Context for LLM: {:?}", context);
+
+// Store interaction
+client.store_event("chat", "User asked about Rust").unwrap();
+```
+</CodeGroup>
+
+## Core Concepts for LLMs
+
+### Memory Types
+
+Membrain provides specialized memory types for LLM applications:
+
+<Tabs>
+  <Tab title="Semantic Memory">
+    **Knowledge for LLM Context** - Store facts, concepts, and entities that your LLM can reference
+
+    ```python
+    # Store facts for RAG
+    memory.store_fact("GPT-4 supports 128k token context window", 0.95)
+    memory.store_fact("Claude 3.5 excels at code generation", 0.9)
+
+    # Store concepts for domain knowledge
+    memory.store_concept("RAG", "Retrieval Augmented Generation - enhancing LLMs with external knowledge")
+
+    # Store entities for knowledge graphs
+    memory.store_entity("OpenAI", "ai_company")
+    ```
+  </Tab>
+
+  <Tab title="Episodic Memory">
+    **Conversation History** - Remember past interactions with users
+
+    ```python
+    # Store chat interactions
+    memory.store_event("user_message", "User asked about Python best practices")
+    memory.store_event("assistant_message", "Explained PEP 8 style guide")
+
+    # Store observations about user preferences
+    memory.store_observation("User prefers detailed code examples")
+    memory.store_preference("user_123", "response_style", "detailed_with_examples", "strong")
+    ```
+  </Tab>
+
+  <Tab title="Procedural Memory">
+    **LLM Agent Capabilities** - Track what your LLM agent can do
+
+    ```python
+    # Store workflows the agent knows
+    memory.store_workflow("debug_code", "1. Analyze error 2. Find root cause 3. Suggest fix")
+
+    # Store agent skills for tool selection
+    memory.store_skill("code_review", "Analyzes code quality, bugs, and best practices")
+    memory.store_skill("generate_tests", "Creates unit tests for functions")
+    ```
+  </Tab>
+
+  <Tab title="Agent State">
+    **LLM Agent Planning** - Track goals and tasks
+
+    ```python
+    # Store agent goals
+    memory.store_goal("Help user build a web scraper")
+
+    # Track tasks in progress
+    memory.store_task("Write function to parse HTML")
+    memory.store_task("Add error handling for network requests")
+    ```
+  </Tab>
+</Tabs>
+
+### Searching for LLM Context
+
+Search memory to build context for your LLM prompts:
+
+```python
+# Search for relevant context before LLM call
+user_query = "How do I handle API errors in Python?"
+relevant_memories = memory.search(user_query, limit=5)
+
+# Build context string for LLM
+context_for_llm = "\n".join([
+    f"- {m.content}" for m in relevant_memories.memories
+])
+
+# Use in LLM prompt
+system_message = f"""You are a helpful coding assistant.
+Use this relevant context to answer the question:
+
+{context_for_llm}
+"""
+
+# Check if results were filtered
+if relevant_memories.was_gated:
+    print("Some results were filtered by access control")
+
+# Inspect what was retrieved
+for m in relevant_memories.memories:
+    print(f"{m.content} ({m.memory_type}) - relevance: {m.score:.2f}")
+```
+
+### Graph Memory for Complex LLM Reasoning
+
+Use graph memory for multi-hop reasoning and relationship queries:
+
+```python
+from membrain import MembrainGraph
+from sentence_transformers import SentenceTransformer
+
+# Initialize graph and embedding model
+graph = MembrainGraph()
+encoder = SentenceTransformer('all-MiniLM-L6-v2')
+
+# Store related concepts with embeddings
+concepts = [
+    "Python is a high-level programming language",
+    "FastAPI is a Python web framework",
+    "FastAPI uses Pydantic for data validation"
+]
+
+for i, concept in enumerate(concepts):
+    embedding = encoder.encode(concept).tolist()
+    graph.add_node(f"mem_{i}", embedding, confidence=0.9)
+
+# Query with multi-hop traversal for LLM context
+query = "What framework should I use for Python APIs?"
+query_embedding = encoder.encode(query).tolist()
+
+result = graph.query(
+    embedding=query_embedding,
+    max_hops=3,  # Find related concepts up to 3 hops away
+    top_k=5
+)
+
+# Use results to build comprehensive LLM context
+llm_context = "\n".join([f"- Related: memory {node.memory_id} (score: {node.score:.2f})"
+                         for node in result.nodes])
+
+graph.close()
+```
+
+## Configuration
+
+Customize behavior with config:
+
+```python
+config = {
+    "max_memories": 100000,
+    "embedding_dim": 384,
+    "similarity_threshold": 0.85,
+}
+
+client = MembrainClient(config)
+```
+
+<Tip>
+  See the [Python API Reference](/api-reference/python-api#configuration) for all available configuration options.
+</Tip>
+
+## Context Manager (Python)
+
+Use context manager for automatic cleanup:
+
+```python
+with MembrainClient() as client:
+    client.store_fact("Auto cleanup enabled")
+    results = client.search("cleanup")
+# Automatically closed
+```
+
+## Error Handling
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, MembrainError
+
+try:
+    client = MembrainClient()
+    client.store_fact("test")
+except MembrainError as e:
+    print(f"Error: {e}, code: {e.code}")
+```
+
+```javascript JavaScript
+import { MembrainClient, MembrainError } from 'membrain';
+
+try {
+  const client = new MembrainClient();
+  client.storeFact("test");
+  client.close();
+} catch (error) {
+  if (error instanceof MembrainError) {
+    console.error(`Error: ${error.message}, code: ${error.code}`);
+  }
+}
+```
+
+```rust Rust
+use membrain_ffi::MembrainClient;
+
+match MembrainClient::new() {
+    Ok(client) => {
+        if let Err(e) = client.store_fact("test", 0.8) {
+            eprintln!("Store error: {e}");
+        }
+    }
+    Err(e) => eprintln!("Client error: {e}"),
+}
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Python API Reference" icon="python" href="/api-reference/python-api">
+    Full Python API documentation
+  </Card>
+  <Card title="JavaScript API Reference" icon="js" href="/api-reference/javascript-api">
+    Full JavaScript API documentation
+  </Card>
+  <Card title="Basic Usage" icon="book" href="/cookbooks/basic-usage">
+    Fundamental operations cookbook
+  </Card>
+  <Card title="Graph Memory" icon="diagram-project" href="/cookbooks/graph-memory">
+    Advanced graph operations
+  </Card>
+  <Card title="Multi-Agent Systems" icon="users" href="/cookbooks/multi-agent">
+    Building collaborative AI agents
+  </Card>
+  <Card title="Architecture" icon="building" href="/architecture">
+    Deep dive into system design
+  </Card>
+</CardGroup>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Library Not Found">
+    ```
+    Error: libmembrain_ffi.so not found
+    ```
+
+    **Solution:** Set `MEMBRAIN_LIB_PATH`:
+    ```bash
+    export MEMBRAIN_LIB_PATH=/path/to/libmembrain_ffi.so
+    ```
+  </Accordion>
+
+  <Accordion title="Import Error (Python)">
+    ```
+    ImportError: cannot import name 'MembrainClient'
+    ```
+
+    **Solution:** Ensure `membrain` package is installed:
+    ```bash
+    pip install --upgrade membrain
+    ```
+  </Accordion>
+
+  <Accordion title="Module Not Found (JavaScript)">
+    ```
+    Error: Cannot find module 'membrain'
+    ```
+
+    **Solution:** Install the package:
+    ```bash
+    npm install membrain
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Getting Help
+
+<CardGroup cols={3}>
+  <Card title="Documentation" icon="book" href="/introduction">
+    Browse the full documentation
+  </Card>
+  <Card title="Cookbooks" icon="code" href="/cookbooks/basic-usage">
+    Practical examples and patterns
+  </Card>
+  <Card title="GitHub" icon="github" href="https://github.com/membrain/membrain">
+    Open an issue or discussion
+  </Card>
+</CardGroup>

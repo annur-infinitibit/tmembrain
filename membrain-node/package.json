@@ -1,0 +1,49 @@
+{
+  "name": "membrain",
+  "version": "0.1.0",
+  "description": "Node.js client for the Membrain memory system (via shared C ABI)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.mjs",
+    "test:coverage": "c8 --reporter=text --reporter=lcov --lines 80 --check-coverage node --test tests/*.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["memory", "llm", "agent", "ffi"],
+  "dependencies": {
+    "koffi": "^2.9.0"
+  },
+  "peerDependencies": {
+    "@qdrant/js-client-rest": ">=1.0.0",
+    "chromadb": ">=1.0.0",
+    "@pinecone-database/pinecone": ">=2.0.0",
+    "@zilliz/milvus2-sdk-node": ">=2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@qdrant/js-client-rest": { "optional": true },
+    "chromadb": { "optional": true },
+    "@pinecone-database/pinecone": { "optional": true },
+    "@zilliz/milvus2-sdk-node": { "optional": true }
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.0",
+    "c8": "^10.1.2",
+    "dotenv": "^16.3.1"
+  },
+  "files": [
+    "dist",
+    "src",
+    "package.json",
+    "tsconfig.json"
+  ]
+}

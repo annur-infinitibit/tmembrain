@@ -1,0 +1,22 @@
+[package]
+name = "membrain-audit"
+version.workspace = true
+edition.workspace = true
+description = "Audit logging and metrics for Membrain"
+
+[dependencies]
+membrain-core = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+parking_lot = "0.12"
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,305 @@
+---
+title: MemscaleDB Flat
+description: Brute-force exact nearest-neighbor search with SIMD acceleration, 100% recall guarantee, and zero configuration
+icon: bullseye-arrow
+---
+
+# MemscaleDB Flat
+
+MemscaleDB's flat index performs exact nearest-neighbor search via SIMD-accelerated linear scan. It guarantees 100% recall -- every search returns the mathematically closest vectors. Best for datasets under 10k vectors and as an accuracy baseline for benchmarking other index types.
+
+<CardGroup cols={2}>
+  <Card title="Exact Recall" icon="bullseye" color="#10b981">
+    100% recall guaranteed. Every query returns the true nearest neighbors.
+  </Card>
+  <Card title="SIMD Acceleration" icon="microchip">
+    Auto-detected AVX2/SSE2 for brute-force distance computation -- up to 8x throughput.
+  </Card>
+  <Card title="Zero Configuration" icon="check-circle">
+    No tuning parameters required. Just set the dimension and start adding vectors.
+  </Card>
+  <Card title="Five Distance Metrics" icon="ruler">
+    Cosine, Euclidean, DotProduct, Manhattan, and Chebyshev.
+  </Card>
+</CardGroup>
+
+## Usage
+
+<CodeGroup>
+```python Python
+import uuid
+from membrain import MembrainFlatIndex
+
+# Create a flat index
+index = MembrainFlatIndex(dimension=1536)
+
+# Add vectors -- IDs must be UUID strings
+doc_id_1 = str(uuid.uuid4())
+doc_id_2 = str(uuid.uuid4())
+index.add(doc_id_1, embedding_1)
+index.add(doc_id_2, embedding_2)
+
+# Search -- always returns exact nearest neighbors
+results = index.search(query_embedding, k=5)
+for r in results:
+    print(f"{r['id']}  distance={r['distance']:.4f}")
+
+index.close()
+```
+
+```javascript JavaScript
+import { MembrainFlatIndex } from "membrain";
+
+const index = new MembrainFlatIndex(1536);
+
+const docId1 = crypto.randomUUID();
+const docId2 = crypto.randomUUID();
+index.add(docId1, embedding1);
+index.add(docId2, embedding2);
+
+const results = index.search(queryEmbedding, 5);
+for (const r of results) {
+  console.log(`${r.id}  distance=${r.distance.toFixed(4)}`);
+}
+
+index.close();
+```
+
+```rust Rust
+use memscaledb::{FlatIndex, VectorIndex};
+
+let mut index = FlatIndex::new(1536);
+
+index.add(VectorId::new(), &embedding_1)?;
+index.add(VectorId::new(), &embedding_2)?;
+
+let results = index.search(&query_embedding, 5)?;
+for r in &results {
+    println!("{}  distance={:.4}", r.id, r.distance);
+}
+```
+</CodeGroup>
+
+## Configuration
+
+The flat index works with zero configuration. Only the dimension is required. All other parameters have sensible defaults.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `dimension` | **required** | Vector dimension (must match your embedding model) |
+| `distance_metric` | `Cosine` | Distance function: `Cosine`, `Euclidean`, `DotProduct`, `Manhattan`, `Chebyshev` |
+| `cache_config.capacity` | 1024 | Maximum number of cached query results |
+| `cache_config.enabled` | true | Whether the LRU query cache is active |
+
+### Custom Configuration
+
+<CodeGroup>
+```python Python
+from membrain import MembrainFlatIndex
+
+index = MembrainFlatIndex(config={
+    "dimension": 1536,
+    "distance_metric": "Euclidean",
+    "cache_config": {
+        "capacity": 2048,
+        "enabled": True,
+    },
+})
+```
+
+```javascript JavaScript
+import { MembrainFlatIndex } from "membrain";
+
+const index = new MembrainFlatIndex(undefined, {
+  dimension: 1536,
+  distance_metric: "Euclidean",
+  cache_config: {
+    capacity: 2048,
+    enabled: true,
+  },
+});
+```
+
+```rust Rust
+use memscaledb::{FlatIndex, FlatConfig, DistanceMetric, CacheConfig};
+
+let config = FlatConfig {
+    distance_metric: DistanceMetric::Euclidean,
+    cache_config: CacheConfig {
+        capacity: 2048,
+        enabled: true,
+    },
+};
+let mut index = FlatIndex::with_config(1536, config);
+```
+</CodeGroup>
+
+## Distance Metrics
+
+The flat index supports all five distance metrics:
+
+| Metric | Formula | Best for |
+|---|---|---|
+| **Cosine** (default) | `1 - cosine_similarity` | LLM embeddings (OpenAI, Cohere, BGE) |
+| **Euclidean** | L2 distance | Spatial/geometric data |
+| **DotProduct** | Negative dot product | Pre-normalized embeddings (maximum inner product) |
+| **Manhattan** | L1 distance | Feature vectors with sparse differences |
+| **Chebyshev** | L-infinity distance | Worst-case dimension analysis |
+
+## Operations
+
+### Filtered Search
+
+Restrict results to a subset of vector IDs.
+
+<CodeGroup>
+```python Python
+results = index.search_with_filter(
+    query_embedding, k=5,
+    allowed_ids=[doc_id_1, doc_id_3, doc_id_5],
+)
+```
+
+```javascript JavaScript
+const results = index.searchWithFilter(
+  queryEmbedding, 5,
+  [docId1, docId3, docId5],
+);
+```
+</CodeGroup>
+
+### Batch Search
+
+Run multiple queries in parallel with Rayon-based threading.
+
+<CodeGroup>
+```python Python
+queries = [query1, query2, query3]
+batch_results = index.batch_search(queries, k=5)
+```
+
+```javascript JavaScript
+const batchResults = index.batchSearch([query1, query2, query3], 5);
+```
+</CodeGroup>
+
+### Observability
+
+<CodeGroup>
+```python Python
+metrics = index.metrics()
+print(f"Searches: {metrics['searches']}")
+print(f"Inserts: {metrics['inserts']}")
+print(f"Distance ops: {metrics['distance_computations']}")
+```
+
+```javascript JavaScript
+const m = index.metrics();
+console.log(`Searches: ${m.searches}`);
+console.log(`Inserts: ${m.inserts}`);
+console.log(`Distance ops: ${m.distance_computations}`);
+```
+</CodeGroup>
+
+## How It Works
+
+### Linear Scan
+
+Every `search()` computes the distance between the query and every vector in the index. Candidates are collected in a max-heap and the top-k are returned. The entire scan is accelerated with SIMD instructions (AVX2 on x86_64) for up to 8x throughput over scalar computation.
+
+### Upsert Semantics
+
+Adding a vector with an ID that already exists removes the old entry and inserts the new one. The cache is invalidated on every mutation.
+
+### Swap-Remove
+
+`remove()` uses swap-remove for O(1) deletion. The last element fills the gap left by the removed element, keeping the storage contiguous for cache-friendly scanning.
+
+## When to Use MemscaleDB Flat
+
+| Scenario | Flat Index? |
+|---|---|
+| Small datasets (under 10k vectors) | Yes -- fastest insert, exact recall, minimal memory |
+| Accuracy baseline for benchmarking | Yes -- ground truth for comparing HNSW, IVF, LSH, Vamana |
+| Production with millions of vectors | No -- use [HNSW](/memscaledb/hnsw) or [IVF](/memscaledb/ivf) |
+| Need approximate speed trade-off | No -- use [LSH](/memscaledb/lsh) or [Vamana](/memscaledb/vamana) |
+| All five distance metrics needed | Yes -- the only index type supporting all five metrics |
+
+## Concurrent Access
+
+Use `ConcurrentFlatIndex` when multiple threads need to read and write the index simultaneously. All operations are thread-safe with no external locking required.
+
+<CodeGroup>
+```python Python
+import threading
+import uuid
+from membrain import ConcurrentFlatIndex
+
+index = ConcurrentFlatIndex(dimension=128)
+
+def worker():
+    index.add(str(uuid.uuid4()), [0.5] * 128)
+
+threads = [threading.Thread(target=worker) for _ in range(8)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+results = index.search([0.5] * 128, k=5)
+index.close()
+```
+
+```javascript JavaScript
+import { ConcurrentFlatIndex } from "membrain";
+
+const index = new ConcurrentFlatIndex(128);
+index.add(crypto.randomUUID(), Array(128).fill(0.5));
+
+// Clone to share with another worker
+const clone = index.clone();
+clone.add(crypto.randomUUID(), Array(128).fill(0.3));
+
+console.log(index.len()); // 2 -- both handles share the same index
+clone.close();
+index.close();
+```
+
+```rust Rust
+use memscaledb::{ConcurrentFlatIndex, ConcurrentVectorIndex, VectorId};
+use std::sync::Arc;
+use std::thread;
+
+let index = Arc::new(ConcurrentFlatIndex::new(128));
+let mut handles = vec![];
+
+for _ in 0..8 {
+    let index = Arc::clone(&index);
+    handles.push(thread::spawn(move || {
+        index.add_concurrent(VectorId::new(), &[0.5; 128]).expect("add");
+    }));
+}
+
+for h in handles { h.join().expect("thread panicked"); }
+println!("Vectors: {}", index.len());
+```
+</CodeGroup>
+
+See the [Concurrent Indices](/memscaledb/concurrent) page for a full reference.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MemscaleDB HNSW" icon="bolt" href="/memscaledb/hnsw">
+    Graph-based approximate search for medium to large datasets
+  </Card>
+  <Card title="MemscaleDB IVF" icon="table-cells" href="/memscaledb/ivf">
+    Partition-based search for large datasets with tunable recall
+  </Card>
+  <Card title="MemscaleDB LSH" icon="hashtag" href="/memscaledb/lsh">
+    Hash-based approximate search for high-dimensional data
+  </Card>
+  <Card title="MemscaleDB Vamana" icon="circle-nodes" href="/memscaledb/vamana">
+    DiskANN-style graph for very large datasets with sequential access
+  </Card>
+</CardGroup>

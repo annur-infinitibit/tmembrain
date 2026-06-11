@@ -1,0 +1,194 @@
+---
+title: Pinecone
+description: Fully managed, serverless vector database ideal for zero-infrastructure teams
+icon: cloud
+---
+
+# Pinecone
+
+Pinecone is a fully managed, serverless vector database. It is ideal for teams that want production-grade vector search without managing infrastructure.
+
+<CardGroup cols={2}>
+  <Card title="Install" icon="package" color="#3b82f6">
+    `pip install pinecone-client` — that's it for the Python side.
+  </Card>
+  <Card title="Serverless" icon="cloud">
+    No server to run — create a free index at app.pinecone.io and start building.
+  </Card>
+  <Card title="Managed" icon="shield-check" color="#10b981">
+    Automatic scaling, high availability, and built-in security without configuration.
+  </Card>
+  <Card title="Metadata filtering" icon="filter">
+    Rich metadata filtering with support for complex queries.
+  </Card>
+</CardGroup>
+
+## Setup
+
+**Install the client library:**
+
+```bash
+pip install pinecone-client
+```
+
+**Create an index:**
+
+1. Sign up for free at [app.pinecone.io](https://app.pinecone.io)
+2. Create a new serverless index with your desired dimension
+3. Copy your API key from the dashboard
+
+<Tip>
+  Pinecone has no local development server. Use a free test index for development and a separate production index for deployment.
+</Tip>
+
+## Usage
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, PineconeBackend
+import os
+
+backend = PineconeBackend(
+    api_key=os.environ.get("PINECONE_API_KEY"),
+    index_name="membrain",
+    namespace="default",                              # optional namespace for multi-tenancy
+    dimension=1536,                                   # must match your embedding model
+)
+
+client = MembrainClient(vector_backend=backend)
+
+client.store_fact("Pinecone is fully managed and serverless", 0.9)
+results = client.search("managed vector database", limit=5)
+
+for m in results.memories:
+    print(f"{m.content}  (score {m.score:.2f})")
+
+client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient({
+  vector_db: {
+    backend: "pinecone",
+    api_key: process.env.PINECONE_API_KEY,
+    index_name: "membrain",
+    namespace: "default",
+    dimension: 1536,
+  },
+});
+
+client.storeFact("Pinecone is fully managed and serverless", 0.9);
+const results = client.search("managed vector database", 5);
+
+results.memories.forEach(m =>
+  console.log(`${m.content}  (score ${m.score.toFixed(2)})`)
+);
+
+client.close();
+```
+</CodeGroup>
+
+### Direct Backend Usage
+
+You can also use the `PineconeBackend` class directly for lower-level vector operations.
+
+<CodeGroup>
+```python Python
+from membrain import PineconeBackend
+
+backend = PineconeBackend(
+    api_key="your-pinecone-api-key",
+    index_name="membrain",
+    namespace="default",
+)
+
+backend.store("mem-1", [0.1, 0.2, 0.3], {"type": "fact"})
+results = backend.search([0.1, 0.2, 0.35], 5)
+print(f"Found {len(results)} results")
+```
+
+```javascript JavaScript
+const { PineconeBackend } = require("membrain");
+
+const backend = new PineconeBackend({
+  apiKey: "your-pinecone-api-key",
+  indexName: "membrain",
+  namespace: "default",
+});
+
+await backend.store("mem-1", [0.1, 0.2, 0.3], { type: "fact" });
+const results = await backend.search([0.1, 0.2, 0.35], 5);
+console.log(`Found ${results.length} results`);
+```
+</CodeGroup>
+
+## Configuration options
+
+| Key | Description | Default |
+|---|---|---|
+| `api_key` | Pinecone API key (required) | — |
+| `index_name` | Index to use or create | `membrain` |
+| `namespace` | Namespace for multi-tenancy | `default` |
+| `dimension` | Embedding vector length — must match your model | — |
+| `metric` | Distance metric (`cosine`, `euclidean`, `dotproduct`) | `cosine` |
+
+## Migrating from MemscaleDB
+
+If you have been using the default MemscaleDB index and want to move to Pinecone, follow these steps. No application logic changes are needed — only the backend wiring.
+
+<Steps>
+  <Step title="Create a Pinecone index">
+    1. Sign up at [app.pinecone.io](https://app.pinecone.io)
+    2. Create a serverless index with dimension matching your embedding model
+    3. Copy your API key
+  </Step>
+  <Step title="Export existing memories">
+    ```python
+    from membrain import MembrainClient
+
+    old = MembrainClient()                          # default MemscaleDB
+    memories = old.search("*", limit=10000)         # pull everything
+    old.close()
+    ```
+  </Step>
+  <Step title="Re-import into Pinecone">
+    ```python
+    from membrain import MembrainClient, PineconeBackend
+    import os
+
+    backend = PineconeBackend(
+        api_key=os.environ["PINECONE_API_KEY"],
+        index_name="membrain",
+        dimension=1536,
+    )
+    new = MembrainClient(vector_backend=backend)
+
+    for m in memories.memories:
+        new.store_fact(m.content, m.score)          # re-indexed automatically
+
+    new.close()
+    ```
+  </Step>
+  <Step title="Update config everywhere">
+    Set `PINECONE_API_KEY` environment variable wherever the client is created. Update your code to use `PineconeBackend` instead of the default.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Milvus" icon="server" href="/integrations/milvus">
+    Open-source cloud-scale vector database
+  </Card>
+  <Card title="Qdrant" icon="server" href="/integrations/qdrant">
+    Production-scale with self-hosting option
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Comparison, config reference & custom backends
+  </Card>
+  <Card title="Advanced Patterns" icon="wand-magic-sparkles" href="/cookbooks/advanced-patterns">
+    Fallback chains, connection pooling, monitoring
+  </Card>
+</CardGroup>

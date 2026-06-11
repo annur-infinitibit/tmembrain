@@ -1,0 +1,21 @@
+# Mintlify
+.mintlify
+mintlify
+
+# Node modules (if using local development)
+node_modules/
+
+# Build output
+.cache/
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor directories
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

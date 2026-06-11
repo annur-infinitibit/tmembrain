@@ -1,0 +1,288 @@
+---
+title: API Overview
+description: Unified API reference for Python, JavaScript, and Rust
+icon: code
+---
+
+# API Reference Overview
+
+Membrain provides consistent APIs across Python, JavaScript, and Rust. This section documents all available methods and their usage in each language.
+
+## Quick Navigation
+
+<CardGroup cols={2}>
+  <Card title="Client Operations" icon="plug" href="/api-reference/client">
+    Initialize and configure Membrain clients
+  </Card>
+  <Card title="Memory Operations" icon="database" href="/api-reference/memory-operations">
+    Store and manage memories
+  </Card>
+  <Card title="Search & Query" icon="magnifying-glass" href="/api-reference/search-query">
+    Search and retrieve memories
+  </Card>
+  <Card title="Graph Operations" icon="diagram-project" href="/api-reference/graph-operations">
+    Work with graph memory
+  </Card>
+</CardGroup>
+
+## Language-Specific Guides
+
+<Tabs>
+  <Tab title="Python">
+    ### Installation
+    ```bash
+    pip install membrain
+    ```
+
+    ### Quick Start
+    ```python
+    from membrain import MembrainClient
+
+    client = MembrainClient()
+    client.store_fact("Python is awesome", 0.9)
+    result = client.search("Python", limit=5)
+    client.close()
+    ```
+
+    ### Documentation
+    - [Full Python API](/api-reference/python-api)
+    - Works with: OpenAI, Anthropic, LangChain, LlamaIndex
+  </Tab>
+
+  <Tab title="JavaScript">
+    ### Installation
+    ```bash
+    npm install membrain
+    ```
+
+    ### Quick Start
+    ```javascript
+    import { MembrainClient } from 'membrain';
+
+    const client = new MembrainClient();
+    client.storeFact('JavaScript is awesome', 0.9);
+    const result = client.search('JavaScript', 5);
+    client.close();
+    ```
+
+    ### Documentation
+    - [Full JavaScript API](/api-reference/javascript-api)
+    - Works with: LangChain.js, Vercel AI SDK, OpenAI SDK
+  </Tab>
+
+  <Tab title="Rust">
+    ### Installation
+    ```toml
+    [dependencies]
+    membrain-ffi = { path = "crates/membrain-ffi" }
+    # Or for standalone vector index:
+    memscaledb = { path = "crates/memscaledb" }
+    ```
+
+    ### Quick Start
+    ```rust
+    use membrain_ffi::MembrainClient;
+
+    let client = MembrainClient::new()?;
+    client.store_fact("Rust is awesome", 0.9)?;
+    let results = client.search("Rust", 5)?;
+    ```
+
+    ### Documentation
+    - [Full Rust API](/api-reference/rust-api)
+    - Native Rust integration
+  </Tab>
+</Tabs>
+
+## Common Patterns
+
+### Store Different Memory Types
+
+<CodeGroup>
+```python Python
+# Episodic
+client.store_event("user_login", "User logged in")
+client.store_observation("User prefers dark mode")
+client.store_preference("alice", "theme", "dark", "strong")
+
+# Semantic
+client.store_fact("Python uses dynamic typing", 0.9)
+client.store_concept("REST", "Representational State Transfer")
+client.store_entity("Guido van Rossum", "person")
+
+# Procedural
+client.store_workflow("deploy", "1. Test 2. Build 3. Deploy")
+client.store_skill("code_review", "Analyze code quality")
+client.store_pattern("error_handling", "Use try-except blocks")
+
+# Agent State
+client.store_goal("Build REST API")
+client.store_task("Design database schema")
+```
+
+```javascript JavaScript
+// Episodic
+client.storeEvent('user_login', 'User logged in');
+client.storeObservation('User prefers dark mode');
+client.storePreference('alice', 'theme', 'dark', 'strong');
+
+// Semantic
+client.storeFact('Python uses dynamic typing', 0.9);
+client.storeConcept('REST', 'Representational State Transfer');
+client.storeEntity('Guido van Rossum', 'person');
+
+// Procedural
+client.storeWorkflow('deploy', '1. Test 2. Build 3. Deploy');
+client.storeSkill('code_review', 'Analyze code quality');
+client.storePattern('error_handling', 'Use try-except blocks');
+
+// Agent State
+client.storeGoal('Build REST API');
+client.storeTask('Design database schema');
+```
+
+```rust Rust
+// Episodic
+client.store_event("user_login", "User logged in")?;
+client.store_observation("User prefers dark mode")?;
+client.store_preference("alice", "theme", "dark", PreferenceStrength::Strong)?;
+
+// Semantic
+client.store_fact("Python uses dynamic typing", 0.9)?;
+client.store_concept("REST", "Representational State Transfer")?;
+client.store_entity("Guido van Rossum", "person")?;
+
+// Procedural
+client.store_workflow("deploy", "1. Test 2. Build 3. Deploy")?;
+client.store_skill("code_review", "Analyze code quality")?;
+client.store_pattern("error_handling", "Use try-except blocks")?;
+
+// Agent State
+client.store_goal("Build REST API")?;
+client.store_task("Design database schema")?;
+```
+</CodeGroup>
+
+### Search and Retrieve
+
+<CodeGroup>
+```python Python
+# Basic search
+result = client.search("machine learning", limit=10)
+
+# Search specific type
+facts = client.search("Python", limit=5, memory_type="fact")
+
+# Search with embedding
+embedding = [0.1, 0.2, ...]  # From your embedding model
+result = client.search_by_embedding(embedding, limit=10)
+
+# Get by ID
+memory = client.get_by_id("mem_123")
+
+# Get all of a type
+all_facts = client.get_by_type("fact")
+```
+
+```javascript JavaScript
+// Basic search
+const result = client.search('machine learning', 10);
+
+// Search specific type
+const facts = client.search('Python', 5, 'fact');
+
+// Search with embedding
+const embedding = [0.1, 0.2, ...];  // From your embedding model
+const result = client.searchByEmbedding(embedding, 10);
+
+// Get by ID
+const memory = client.getById('mem_123');
+
+// Get all of a type
+const allFacts = client.getByType('fact');
+```
+
+```rust Rust
+// Basic search
+let result = client.search("machine learning", 10)?;
+
+// Search specific type
+let facts = client.search_by_type("Python", 5, MemoryType::Fact)?;
+
+// Search with embedding
+let embedding = vec![0.1, 0.2, ...];  // From your embedding model
+let result = client.search_by_embedding(&embedding, 10)?;
+
+// Get by ID
+let memory = client.get_by_id("mem_123")?;
+
+// Get all of a type
+let all_facts = client.get_by_type(MemoryType::Fact)?;
+```
+</CodeGroup>
+
+## Data Structures
+
+### SearchResult
+
+<ParamField path="memories" type="Array<Memory>">
+  Array of matching memories
+</ParamField>
+
+### Memory
+
+<ParamField path="id" type="string">
+  Unique memory identifier
+</ParamField>
+
+<ParamField path="content" type="string">
+  Memory content/text
+</ParamField>
+
+<ParamField path="memory_type" type="string">
+  Type: fact, event, goal, etc.
+</ParamField>
+
+<ParamField path="confidence" type="number">
+  Confidence score (0.0 to 1.0)
+</ParamField>
+
+<ParamField path="score" type="number">
+  Similarity score from search
+</ParamField>
+
+<ParamField path="created_at" type="timestamp">
+  When memory was created
+</ParamField>
+
+### StoreResult
+
+<ParamField path="id" type="string">
+  ID of stored memory
+</ParamField>
+
+<ParamField path="merged" type="boolean">
+  Whether memory was merged with existing
+</ParamField>
+
+<ParamField path="merged_with_id" type="string">
+  ID of memory it was merged with (if merged)
+</ParamField>
+
+<ParamField path="confidence" type="number">
+  Final confidence after merge
+</ParamField>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Client API" icon="plug" href="/api-reference/client">
+    Client initialization and configuration
+  </Card>
+  <Card title="Memory Operations" icon="database" href="/api-reference/memory-operations">
+    Store and manage memories
+  </Card>
+  <Card title="Cookbooks" icon="book" href="/cookbooks/chatbot-with-memory">
+    Practical examples
+  </Card>
+</CardGroup>

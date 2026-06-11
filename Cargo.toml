@@ -1,0 +1,129 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/membrain-core",
+    "crates/membrain-storage",
+    "crates/membrain-index",
+    "crates/membrain-pipeline",
+    "crates/membrain-compression",
+    "crates/membrain-jobs",
+    "crates/membrain-audit",
+    "crates/membrain-multi-agent",
+    "crates/membrain-ffi",
+    "crates/membrain-graph",
+    "crates/membrain-conflict",
+    "crates/membrain-pyo3",
+    "crates/membrain-test-utils",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/membrain/membrain"
+rust-version = "1.75"
+
+[workspace.dependencies]
+# Internal crates
+membrain-core = { path = "crates/membrain-core" }
+membrain-storage = { path = "crates/membrain-storage" }
+membrain-index = { path = "crates/membrain-index" }
+membrain-pipeline = { path = "crates/membrain-pipeline" }
+membrain-compression = { path = "crates/membrain-compression" }
+membrain-jobs = { path = "crates/membrain-jobs" }
+membrain-audit = { path = "crates/membrain-audit" }
+membrain-multi-agent = { path = "crates/membrain-multi-agent" }
+membrain-graph = { path = "crates/membrain-graph" }
+membrain-conflict = { path = "crates/membrain-conflict" }
+membrain-ffi = { path = "crates/membrain-ffi" }
+memscaledb = { package = "memscaledb-core", git = "https://github.com/YOUR_USERNAME/tmemscaledb", branch = "main" }
+membrain-test-utils = { path = "crates/membrain-test-utils" }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rmp-serde = "1.1"  # MessagePack
+base64 = "0.22.1"
+
+# Database
+tokio-rusqlite = "0.5"
+rusqlite = { version = "0.31", features = ["bundled", "blob"] }
+
+# Numeric / ML
+ndarray = { version = "0.16", features = ["serde"] }
+rand = "0.8"
+
+# UUID v7 for time-ordered IDs, v4 for random IDs
+uuid = { version = "1.6", features = ["v4", "v7", "serde"] }
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Configuration
+toml = "0.8"
+config = "0.14"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Async traits
+async-trait = "0.1"
+
+# C FFI types
+libc = "0.2"
+
+# Python bindings (PyO3)
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py310"] }
+pyo3-async-runtimes = { version = "0.23", features = ["tokio-runtime"] }
+# Parallelism
+rayon = "1.10"
+
+# Memory-mapped I/O
+memmap2 = "0.9"
+
+# Caching
+lru = "0.12"
+
+# GPU compute
+wgpu = "25"
+pollster = "0.4"
+bytemuck = { version = "1.24", features = ["derive"] }
+
+# HTTP client (for embedding providers)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Testing
+proptest = "1.4"
+tokio-test = "0.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3.10"
+hyper = { version = "1.4", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "http1", "server"] }
+http-body-util = "0.1"
+futures-util = "0.3"
+parking_lot = "0.12"
+bytes = "1.6"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

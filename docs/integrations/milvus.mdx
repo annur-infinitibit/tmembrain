@@ -1,0 +1,201 @@
+---
+title: Milvus
+description: Open-source cloud-scale vector database with GPU indexing and streaming ingestion
+icon: server
+---
+
+# Milvus
+
+Milvus is an open-source, cloud-native vector database built for billion-scale similarity search. It supports GPU indexing, streaming ingestion, and distributed deployment.
+
+<CardGroup cols={2}>
+  <Card title="Install" icon="package" color="#3b82f6">
+    `pip install pymilvus` — that's it for the Python side.
+  </Card>
+  <Card title="Server" icon="server">
+    Run locally with Docker or use Zilliz Cloud (managed Milvus) for a serverless option.
+  </Card>
+  <Card title="Dynamic schema" icon="table" color="#10b981">
+    Store metadata as dynamic fields without predefined schema.
+  </Card>
+  <Card title="Scale" icon="chart-line">
+    Scales to billions of vectors with GPU indexing, sharding, and distributed architecture.
+  </Card>
+</CardGroup>
+
+## Setup
+
+**Install the client library:**
+
+```bash
+pip install pymilvus
+```
+
+**Start the server locally:**
+
+```bash
+docker run -p 19530:19530 -p 9091:9091 milvusdb/milvus:latest
+```
+
+<Tip>
+  [Zilliz Cloud](https://zilliz.com/cloud) offers managed Milvus with a free tier — just swap the `uri` and add your `token`. No Docker required.
+</Tip>
+
+## Usage
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, MilvusBackend
+import os
+
+backend = MilvusBackend(
+    uri=os.environ.get("MILVUS_URI", "http://localhost:19530"),
+    token=os.environ.get("MILVUS_TOKEN"),           # for Zilliz Cloud
+    collection_name="membrain",
+    dimension=1536,                                   # must match your embedding model
+    metric_type="COSINE",                            # COSINE, L2, or IP
+)
+
+client = MembrainClient(vector_backend=backend)
+
+client.store_fact("Milvus supports GPU indexing and billions of vectors", 0.9)
+results = client.search("GPU vector search", limit=5)
+
+for m in results.memories:
+    print(f"{m.content}  (score {m.score:.2f})")
+
+client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient({
+  vector_db: {
+    backend: "milvus",
+    uri: process.env.MILVUS_URI || "http://localhost:19530",
+    token: process.env.MILVUS_TOKEN,
+    collection_name: "membrain",
+    dimension: 1536,
+    metric_type: "COSINE",
+  },
+});
+
+client.storeFact("Milvus supports GPU indexing and billions of vectors", 0.9);
+const results = client.search("GPU vector search", 5);
+
+results.memories.forEach(m =>
+  console.log(`${m.content}  (score ${m.score.toFixed(2)})`)
+);
+
+client.close();
+```
+</CodeGroup>
+
+### Direct Backend Usage
+
+You can also use the `MilvusBackend` class directly for lower-level vector operations.
+
+<CodeGroup>
+```python Python
+from membrain import MilvusBackend
+
+backend = MilvusBackend(
+    uri="http://localhost:19530",
+    collection_name="membrain",
+    dimension=1536,
+)
+backend.ensure_collection()
+
+backend.store("mem-1", [0.1, 0.2, 0.3], {"type": "fact"})
+results = backend.search([0.1, 0.2, 0.35], 5)
+print(f"Found {len(results)} results")
+
+backend.close()
+```
+
+```javascript JavaScript
+const { MilvusBackend } = require("membrain");
+
+const backend = new MilvusBackend({
+  address: "localhost:19530",
+  collectionName: "membrain",
+  dimension: 1536,
+});
+await backend.ensureCollection();
+
+await backend.store("mem-1", [0.1, 0.2, 0.3], { type: "fact" });
+const results = await backend.search([0.1, 0.2, 0.35], 5);
+console.log(`Found ${results.length} results`);
+
+await backend.close();
+```
+</CodeGroup>
+
+## Configuration options
+
+| Key | Description | Default |
+|---|---|---|
+| `uri` | Milvus server URI or file path for Milvus Lite | `http://localhost:19530` |
+| `token` | Auth token for Zilliz Cloud (optional for local) | `None` |
+| `collection_name` | Collection to use or create | `membrain` |
+| `dimension` | Embedding vector length — must match your model | — |
+| `metric_type` | Distance metric (`COSINE`, `L2`, `IP`) | `COSINE` |
+
+## Migrating from MemscaleDB
+
+If you have been using the default MemscaleDB index and want to move to Milvus, follow these steps. No application logic changes are needed — only the backend wiring.
+
+<Steps>
+  <Step title="Start Milvus">
+    ```bash
+    docker run -p 19530:19530 -p 9091:9091 milvusdb/milvus:latest
+    ```
+  </Step>
+  <Step title="Export existing memories">
+    ```python
+    from membrain import MembrainClient
+
+    old = MembrainClient()                          # default MemscaleDB
+    memories = old.search("*", limit=10000)         # pull everything
+    old.close()
+    ```
+  </Step>
+  <Step title="Re-import into Milvus">
+    ```python
+    from membrain import MembrainClient, MilvusBackend
+
+    backend = MilvusBackend(
+        uri="http://localhost:19530",
+        collection_name="membrain",
+        dimension=1536,
+    )
+    new = MembrainClient(vector_backend=backend)
+
+    for m in memories.memories:
+        new.store_fact(m.content, m.score)          # re-indexed automatically
+
+    new.close()
+    ```
+  </Step>
+  <Step title="Update config everywhere">
+    Set `MEMBRAIN_VECTOR_DB_BACKEND=milvus` (or pass the backend explicitly) wherever the client is created. Set `MILVUS_URI` and optionally `MILVUS_TOKEN` environment variables.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Pinecone" icon="cloud" href="/integrations/pinecone">
+    Fully managed, serverless option
+  </Card>
+  <Card title="Qdrant" icon="server" href="/integrations/qdrant">
+    Production-scale with hybrid search
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Comparison, config reference & custom backends
+  </Card>
+  <Card title="Advanced Patterns" icon="wand-magic-sparkles" href="/cookbooks/advanced-patterns">
+    Fallback chains, connection pooling, monitoring
+  </Card>
+</CardGroup>

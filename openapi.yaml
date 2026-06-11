@@ -1,0 +1,1891 @@
+openapi: 3.1.0
+info:
+  title: Membrain API (UNIMPLEMENTED — aspirational spec)
+  version: 0.1.0-draft
+  x-status: draft
+  description: |
+    STATUS: This OpenAPI document describes a REST surface that does NOT
+    currently exist in the codebase. Membrain today is delivered as a Rust
+    crate + C FFI consumed directly by Python (`membrain-py`) and Node
+    (`membrain-node`) SDKs; there is no running HTTP server, and none of
+    the endpoints below resolve. Treat this file as design notes for a
+    future REST gateway — not as an API contract.
+
+    Membrain is a structured memory system for AI agents. It stores, indexes, and retrieves memories using a high-performance Rust engine exposed through a C FFI layer.
+
+    ## Memory Categories
+
+    | Category | Types | Use Case |
+    |----------|-------|----------|
+    | **Semantic** | Facts, Preferences, Concepts, Entities | Declarative knowledge — what the agent *knows* |
+    | **Episodic** | Events, Observations | Experiential knowledge — what *happened* |
+    | **Procedural** | Workflows, Skills, Patterns | Operational knowledge — *how* to do things |
+    | **Agent State** | Goals, Tasks | Internal state — what the agent is *working on* |
+
+    ## Graph Layer
+
+    Membrain includes a neural graph memory layer that connects stored memories via learned edges. Use graph operations to add nodes, run multi-hop queries with attention-weighted traversal, and manage graph state.
+
+    ## SDKs
+
+    - **Python** — `pip install membrain` ([PyPI](https://pypi.org/project/membrain/))
+    - **Node.js** — `npm install membrain` ([npm](https://www.npmjs.com/package/membrain))
+
+    Both SDKs wrap the same native library via FFI — no network calls, no servers.
+servers:
+  - url: https://api.membrain.dev
+    description: Logical API (maps to FFI calls)
+
+tags:
+  - name: Semantic Memory
+    description: Store and manage declarative knowledge — facts, preferences, concepts, and entities.
+  - name: Episodic Memory
+    description: Store and manage experiential knowledge — events and observations.
+  - name: Procedural Memory
+    description: Store and manage operational knowledge — workflows, skills, and patterns.
+  - name: Agent State
+    description: Store and manage internal agent state — goals and tasks.
+  - name: Search & Retrieval
+    description: Search, retrieve, delete, and count memories across all categories.
+  - name: Graph Nodes
+    description: Add and remove nodes in the neural graph memory layer. Each node corresponds to a stored memory and holds an embedding vector.
+  - name: Graph Query
+    description: Run multi-hop graph queries with attention-weighted traversal to discover related memories.
+  - name: Graph Management
+    description: Prune stale edges, inspect graph statistics, and export/import graph snapshots.
+  - name: Statistics
+    description: System-level statistics about storage usage and memory distribution.
+
+x-tagGroups:
+  - name: Memories
+    tags:
+      - Semantic Memory
+      - Episodic Memory
+      - Procedural Memory
+      - Agent State
+  - name: Retrieval
+    tags:
+      - Search & Retrieval
+  - name: Graph
+    tags:
+      - Graph Nodes
+      - Graph Query
+      - Graph Management
+  - name: System
+    tags:
+      - Statistics
+
+paths:
+  # ──────────────────────────────────────────────
+  # Semantic Memory
+  # ──────────────────────────────────────────────
+  /memories/facts:
+    post:
+      operationId: store_fact
+      summary: Store a fact
+      description: |
+        Store a factual statement as a semantic memory. Facts are declarative knowledge
+        with an associated confidence score.
+
+        Use this when the agent learns a new piece of information that should be
+        retrievable later — for example, user preferences expressed as statements,
+        domain knowledge, or contextual facts.
+
+        The memory may be **merged** with an existing fact if the write pipeline detects
+        a near-duplicate, or **rejected** if gating rules block it. Check the
+        `merged_with` and `rejection_reason` fields in the response.
+      tags:
+        - Semantic Memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - statement
+                - confidence
+              properties:
+                statement:
+                  type: string
+                  description: The factual statement to store.
+                  example: The capital of France is Paris
+                confidence:
+                  type: number
+                  format: double
+                  minimum: 0
+                  maximum: 1
+                  description: |
+                    How confident the agent is in this fact, from 0.0 (uncertain) to 1.0 (certain).
+                    Facts with very low confidence may be filtered by the write pipeline.
+                  example: 0.95
+      responses:
+        "200":
+          description: Fact stored, merged, or rejected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreResult"
+        "400":
+          description: Invalid request (e.g. empty statement).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            result = client.store_fact("The capital of France is Paris", confidence=0.95)
+            print(result.id)  # UUID of the stored memory
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const result = client.storeFact('The capital of France is Paris', 0.95);
+            console.log(result.id);
+
+  /memories/preferences:
+    post:
+      operationId: store_preference
+      summary: Store a preference
+      description: |
+        Store a preference as a semantic memory. Preferences capture what a holder
+        (typically the user) likes, dislikes, or favors about a given subject.
+
+        Strength levels:
+        - `weak` — slight inclination, easily overridden
+        - `moderate` — noticeable preference, considered in decisions
+        - `strong` — clear preference, should be respected
+        - `absolute` — non-negotiable requirement
+      tags:
+        - Semantic Memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - holder
+                - subject
+                - preference
+                - strength
+              properties:
+                holder:
+                  type: string
+                  description: Who holds the preference (e.g. "user", "admin", an agent name).
+                  example: user
+                subject:
+                  type: string
+                  description: What the preference is about.
+                  example: theme
+                preference:
+                  type: string
+                  description: The preferred value or behavior.
+                  example: dark mode
+                strength:
+                  type: string
+                  enum:
+                    - weak
+                    - moderate
+                    - strong
+                    - absolute
+                  description: How strongly the preference is held.
+                  example: strong
+      responses:
+        "200":
+          description: Preference stored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreResult"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            result = client.store_preference(
+                holder="user",
+                subject="theme",
+                preference="dark mode",
+                strength="strong",
+            )
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const result = client.storePreference('user', 'theme', 'dark mode', 'strong');
+
+  /memories/concepts:
+    post:
+      operationId: store_concept
+      summary: Store a concept
+      description: |
+        Store a concept as a semantic memory. Concepts are named ideas or abstractions
+        with definitions — useful for building the agent's vocabulary and domain model.
+      tags:
+        - Semantic Memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - definition
+              properties:
+                name:
+                  type: string
+                  description: Name of the concept.
+                  example: FFI
+                definition:
+                  type: string
+                  description: A clear definition of the concept.
+                  example: Foreign Function Interface — a mechanism for calling functions written in one language from another.
+      responses:
+        "200":
+          description: Concept stored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreResult"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            result = client.store_concept(
+                name="FFI",
+                definition="Foreign Function Interface",
+            )
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const result = client.storeConcept('FFI', 'Foreign Function Interface');
+
+  /memories/entities:
+    post:
+      operationId: store_entity
+      summary: Store an entity
+      description: |
+        Store a named entity as a semantic memory. Entities are real-world things
+        (people, organizations, technologies, etc.) with a type classification.
+
+        Entity types:
+        - `person` — a human individual
+        - `organization` — a company, team, or institution
+        - `place` — a geographic location
+        - `product` — a product or service
+        - `event` — a named event (conference, release, etc.)
+        - `concept` — an abstract idea (prefer the `/memories/concepts` endpoint for richer definitions)
+        - `document` — a document, article, or specification
+        - `technology` — a programming language, framework, or tool
+        - `other` — anything that doesn't fit the above
+      tags:
+        - Semantic Memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - entity_type
+              properties:
+                name:
+                  type: string
+                  description: Name of the entity.
+                  example: Rust
+                entity_type:
+                  type: string
+                  enum:
+                    - person
+                    - organization
+                    - place
+                    - product
+                    - event
+                    - concept
+                    - document
+                    - technology
+                    - other
+                  description: Type classification of the entity.
+                  example: technology
+      responses:
+        "200":
+          description: Entity stored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreResult"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            result = client.store_entity(name="Rust", entity_type="technology")
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const result = client.storeEntity('Rust', 'technology');
+
+  # ──────────────────────────────────────────────
+  # Episodic Memory
+  # ──────────────────────────────────────────────
+  /memories/events:
+    post:
+      operationId: store_event
+      summary: Store an event
+      description: |
+        Store an event as an episodic memory. Events record things that happened —
+        meetings, user actions, system incidents, or any noteworthy occurrence.
+
+        The event is automatically timestamped. Use `event_type` to categorize it
+        for later filtering and retrieval.
+      tags:
+        - Episodic Memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - event_type
+                - description
+              properties:
+                event_type:
+                  type: string
+                  description: Category of the event (e.g. "meeting", "deployment", "error").
+                  example: meeting
+                description:
+                  type: string
+                  description: Description of what happened.
+                  example: Team standup — discussed Q2 roadmap and assigned sprint tasks.
+      responses:
+        "200":
+          description: Event stored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreResult"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            result = client.store_event(
+                event_type="meeting",
+                description="Team standup — discussed Q2 roadmap",
+            )
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const result = client.storeEvent('meeting', 'Team standup — discussed Q2 roadmap');
+
+  /memories/observations:
+    post:
+      operationId: store_observation
+      summary: Store an observation
+      description: |
+        Store an observation as an episodic memory. Observations capture things the
+        agent notices about users, context, or the environment — behavioral patterns,
+        preferences in action, or situational notes.
+
+        Unlike facts (which are stated), observations are *inferred* from context.
+      tags:
+        - Episodic Memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+                  description: The observation text.
+                  example: User tends to ask about Rust on Monday mornings.
+      responses:
+        "200":
+          description: Observation stored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreResult"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            result = client.store_observation("User tends to ask about Rust on Monday mornings")
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const result = client.storeObservation('User tends to ask about Rust on Monday mornings');
+
+  # ──────────────────────────────────────────────
+  # Procedural Memory
+  # ──────────────────────────────────────────────
+  /memories/workflows:
+    post:
+      operationId: store_workflow
+      summary: Store a workflow
+      description: |
+        Store a workflow as a procedural memory. Workflows capture multi-step processes
+        the agent knows how to perform — deployment pipelines, data transformations,
+        or any repeatable sequence of actions.
+      tags:
+        - Procedural Memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - description
+              properties:
+                name:
+                  type: string
+                  description: Name of the workflow.
+                  example: deploy
+                description:
+                  type: string
+                  description: Description of the workflow steps.
+                  example: "Deploy to production: run tests, build image, push to registry, update k8s."
+      responses:
+        "200":
+          description: Workflow stored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreResult"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            result = client.store_workflow(
+                name="deploy",
+                description="Deploy to production: run tests, build, push, update k8s",
+            )
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const result = client.storeWorkflow(
+              'deploy',
+              'Deploy to production: run tests, build, push, update k8s',
+            );
+
+  /memories/skills:
+    post:
+      operationId: store_skill
+      summary: Store a skill
+      description: |
+        Store a skill as a procedural memory. Skills represent capabilities or
+        competencies the agent possesses — things it can do and how well it does them.
+      tags:
+        - Procedural Memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - description
+              properties:
+                name:
+                  type: string
+                  description: Name of the skill.
+                  example: code_review
+                description:
+                  type: string
+                  description: Description of the skill and what it involves.
+                  example: Review pull requests for correctness, style, and security issues.
+      responses:
+        "200":
+          description: Skill stored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreResult"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            result = client.store_skill(
+                name="code_review",
+                description="Review pull requests for correctness, style, and security",
+            )
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const result = client.storeSkill(
+              'code_review',
+              'Review pull requests for correctness, style, and security',
+            );
+
+  /memories/patterns:
+    post:
+      operationId: store_pattern
+      summary: Store a pattern
+      description: |
+        Store a pattern as a procedural memory. Patterns capture recurring behaviors,
+        sequences, or trends the agent has identified.
+
+        Pattern types:
+        - `user_behavior` — recurring user actions or habits
+        - `conversation` — conversational patterns or dialogue structures
+        - `error` — recurring errors or failure modes
+        - `success` — patterns associated with successful outcomes
+        - `temporal` — time-based patterns (daily, weekly, seasonal)
+        - `contextual` — context-dependent patterns
+        - `other` — patterns that don't fit the above categories
+      tags:
+        - Procedural Memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - description
+                - pattern_type
+              properties:
+                name:
+                  type: string
+                  description: Name of the pattern.
+                  example: morning_standup
+                description:
+                  type: string
+                  description: Description of the pattern and when it occurs.
+                  example: Team holds a 15-minute standup at 9:30 AM every weekday.
+                pattern_type:
+                  type: string
+                  enum:
+                    - user_behavior
+                    - conversation
+                    - error
+                    - success
+                    - temporal
+                    - contextual
+                    - other
+                  description: Classification of the pattern.
+                  example: temporal
+      responses:
+        "200":
+          description: Pattern stored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreResult"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            result = client.store_pattern(
+                name="morning_standup",
+                description="Team holds a 15-min standup at 9:30 AM every weekday",
+                pattern_type="temporal",
+            )
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const result = client.storePattern(
+              'morning_standup',
+              'Team holds a 15-min standup at 9:30 AM every weekday',
+              'temporal',
+            );
+
+  # ──────────────────────────────────────────────
+  # Agent State
+  # ──────────────────────────────────────────────
+  /memories/goals:
+    post:
+      operationId: store_goal
+      summary: Store a goal
+      description: |
+        Store a goal as an agent-state memory. Goals represent high-level objectives
+        the agent is working toward. They persist across sessions and can be searched
+        alongside other memories.
+      tags:
+        - Agent State
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - description
+              properties:
+                description:
+                  type: string
+                  description: Description of the goal.
+                  example: Complete the FFI bindings for all graph operations.
+      responses:
+        "200":
+          description: Goal stored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreResult"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            result = client.store_goal("Complete the FFI bindings for all graph operations")
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const result = client.storeGoal('Complete the FFI bindings for all graph operations');
+
+  /memories/tasks:
+    post:
+      operationId: store_task
+      summary: Store a task
+      description: |
+        Store a task as an agent-state memory. Tasks are actionable items the agent
+        needs to complete — more concrete and granular than goals.
+      tags:
+        - Agent State
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+              properties:
+                title:
+                  type: string
+                  description: Title of the task.
+                  example: Write unit tests for graph pruning
+      responses:
+        "200":
+          description: Task stored successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreResult"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            result = client.store_task("Write unit tests for graph pruning")
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const result = client.storeTask('Write unit tests for graph pruning');
+
+  # ──────────────────────────────────────────────
+  # Search & Retrieval
+  # ──────────────────────────────────────────────
+  /memories/search:
+    get:
+      operationId: search
+      summary: Search memories
+      description: |
+        Search for memories matching a natural-language query. Results are ranked by
+        relevance score (cosine similarity of embeddings).
+
+        The search may be **gated** — filtered by the read pipeline based on
+        configured rules. When `was_gated` is `true`, some results were suppressed.
+      tags:
+        - Search & Retrieval
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: Natural-language search query.
+          schema:
+            type: string
+          example: dark mode preference
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of results to return.
+          schema:
+            type: integer
+            default: 10
+            minimum: 1
+      responses:
+        "200":
+          description: Search results ranked by relevance.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResults"
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            results = client.search("dark mode preference", limit=5)
+            for memory in results.memories:
+                print(f"{memory.score:.2f}  {memory.content}")
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const results = client.search('dark mode preference', 5);
+            results.memories.forEach(m => console.log(`${m.score.toFixed(2)}  ${m.content}`));
+
+  /memories/{id}:
+    get:
+      operationId: get_memory
+      summary: Get a memory by ID
+      description: |
+        Retrieve a single memory by its UUID. Returns the full memory content,
+        type classification, and confidence score. Returns `null` (204) if the
+        memory does not exist.
+      tags:
+        - Search & Retrieval
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Memory UUID.
+          schema:
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        "200":
+          description: Memory found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryInfo"
+        "404":
+          description: Memory not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            memory = client.get("550e8400-e29b-41d4-a716-446655440000")
+            if memory:
+                print(memory.content, memory.confidence)
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const memory = client.get('550e8400-e29b-41d4-a716-446655440000');
+            if (memory) console.log(memory.content, memory.confidence);
+
+    delete:
+      operationId: delete_memory
+      summary: Delete a memory
+      description: |
+        Delete a memory by its UUID. Returns `{ "deleted": true }` whether or not
+        the memory existed (idempotent). If the memory is also a node in the graph,
+        you should remove it from the graph separately.
+      tags:
+        - Search & Retrieval
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Memory UUID.
+          schema:
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        "200":
+          description: Memory deleted (or did not exist).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    description: Always `true` — the operation is idempotent.
+                    example: true
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            client.delete("550e8400-e29b-41d4-a716-446655440000")
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            client.delete('550e8400-e29b-41d4-a716-446655440000');
+
+  /memories/count:
+    get:
+      operationId: count_memories
+      summary: Count memories
+      description: |
+        Get the total number of memories stored across all categories.
+      tags:
+        - Search & Retrieval
+      responses:
+        "200":
+          description: Memory count.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    description: Total number of stored memories.
+                    example: 42
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            print(client.count())  # 42
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            console.log(client.count()); // 42
+
+  # ──────────────────────────────────────────────
+  # Graph Nodes
+  # ──────────────────────────────────────────────
+  /graph/nodes:
+    post:
+      operationId: graph_add_node
+      summary: Add a node to the graph
+      description: |
+        Add a memory to the neural graph as a node. The node is identified by its
+        `memory_id` (which should match an existing stored memory) and carries an
+        embedding vector used for edge creation and query traversal.
+
+        When a node is added, the graph automatically creates edges to nearby nodes
+        based on embedding similarity (controlled by `creation_similarity_threshold`
+        in the graph config, default 0.7).
+      tags:
+        - Graph Nodes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddNodeRequest"
+      responses:
+        "200":
+          description: Node added successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        "400":
+          description: Invalid request (e.g. wrong embedding dimension).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainGraph
+
+            graph = MembrainGraph()
+            embedding = [0.1, 0.2, 0.3, ...]  # 768-dimensional vector
+            graph.add_node("550e8400-e29b-41d4-a716-446655440000", embedding, confidence=0.9)
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainGraph } = require('membrain');
+
+            const graph = new MembrainGraph();
+            const embedding = [0.1, 0.2, 0.3, /* ... */]; // 768-dimensional vector
+            graph.addNode('550e8400-e29b-41d4-a716-446655440000', embedding, 0.9);
+
+  /graph/nodes/{memory_id}:
+    delete:
+      operationId: graph_remove_node
+      summary: Remove a node from the graph
+      description: |
+        Remove a node and all its incident edges from the graph. The underlying
+        memory in storage is **not** deleted — only the graph node is removed.
+      tags:
+        - Graph Nodes
+      parameters:
+        - name: memory_id
+          in: path
+          required: true
+          description: UUID of the memory whose graph node should be removed.
+          schema:
+            type: string
+            format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+      responses:
+        "200":
+          description: Node removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainGraph
+
+            graph = MembrainGraph()
+            graph.remove_node("550e8400-e29b-41d4-a716-446655440000")
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainGraph } = require('membrain');
+
+            const graph = new MembrainGraph();
+            graph.removeNode('550e8400-e29b-41d4-a716-446655440000');
+
+  /graph/nodes/count:
+    get:
+      operationId: graph_node_count
+      summary: Count graph nodes
+      description: |
+        Get the number of nodes currently in the graph. Each node corresponds to
+        a stored memory that was explicitly added to the graph.
+      tags:
+        - Graph Management
+      responses:
+        "200":
+          description: Node count.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    description: Number of nodes in the graph.
+                    example: 150
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainGraph
+
+            graph = MembrainGraph()
+            print(graph.node_count())  # 150
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainGraph } = require('membrain');
+
+            const graph = new MembrainGraph();
+            console.log(graph.nodeCount()); // 150
+
+  /graph/edges/count:
+    get:
+      operationId: graph_edge_count
+      summary: Count graph edges
+      description: |
+        Get the number of edges currently in the graph. Edges are automatically
+        created when nodes with similar embeddings are added and are pruned
+        over time based on weight decay.
+      tags:
+        - Graph Management
+      responses:
+        "200":
+          description: Edge count.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    description: Number of edges in the graph.
+                    example: 420
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainGraph
+
+            graph = MembrainGraph()
+            print(graph.edge_count())  # 420
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainGraph } = require('membrain');
+
+            const graph = new MembrainGraph();
+            console.log(graph.edgeCount()); // 420
+
+  # ──────────────────────────────────────────────
+  # Graph Query
+  # ──────────────────────────────────────────────
+  /graph/query:
+    post:
+      operationId: graph_query
+      summary: Multi-hop graph query
+      description: |
+        Run a multi-hop traversal query on the graph using an embedding vector.
+        The query starts at the nodes most similar to the input embedding and
+        traverses outgoing edges using attention-weighted message passing.
+
+        The result includes:
+        - **nodes** — the top-k most relevant nodes, ranked by score
+        - **traversed_edges** — the edges the traversal followed, with attention scores
+        - **hops_performed** — how many hops the traversal actually took (may be less than `max_hops` if convergence is reached)
+        - **nodes_visited** — total number of nodes touched during traversal
+
+        Use this to discover memories that are *conceptually related* through
+        the graph structure, even if they wouldn't match a direct text search.
+      tags:
+        - Graph Query
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GraphQueryRequest"
+      responses:
+        "200":
+          description: Query results with scored nodes and traversal path.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphQueryResult"
+        "400":
+          description: Invalid request (e.g. wrong embedding dimension).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainGraph
+
+            graph = MembrainGraph()
+            embedding = [0.1, 0.2, 0.3, ...]  # 768-dimensional query vector
+            result = graph.query(embedding, max_hops=3, top_k=5)
+            for node in result.nodes:
+                print(f"{node.score:.3f}  {node.memory_id}  (hop {node.hop_distance})")
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainGraph } = require('membrain');
+
+            const graph = new MembrainGraph();
+            const embedding = [0.1, 0.2, 0.3, /* ... */]; // 768-dimensional query vector
+            const result = graph.query(embedding, 3, 5);
+            result.nodes.forEach(n =>
+              console.log(`${n.score.toFixed(3)}  ${n.memory_id}  (hop ${n.hop_distance})`),
+            );
+
+  # ──────────────────────────────────────────────
+  # Graph Management
+  # ──────────────────────────────────────────────
+  /graph/prune:
+    post:
+      operationId: graph_prune
+      summary: Prune stale edges
+      description: |
+        Manually trigger edge pruning on the graph. Pruning removes edges whose
+        weight has decayed below the configured `min_weight` threshold (default 0.05).
+
+        Edge weights decay exponentially over time based on `weight_half_life_secs`
+        (default 7 days). Pruning also removes orphan nodes with no remaining edges.
+
+        In normal operation, pruning happens automatically. Use this endpoint to
+        force an immediate cleanup — for example, after bulk-removing nodes.
+      tags:
+        - Graph Management
+      responses:
+        "200":
+          description: Pruning results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphPruningResult"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainGraph
+
+            graph = MembrainGraph()
+            result = graph.prune()
+            print(f"Removed {result.edges_removed} edges, {result.nodes_removed} orphan nodes")
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainGraph } = require('membrain');
+
+            const graph = new MembrainGraph();
+            const result = graph.prune();
+            console.log(`Removed ${result.edges_removed} edges, ${result.nodes_removed} orphan nodes`);
+
+  /graph/snapshot:
+    get:
+      operationId: graph_save
+      summary: Export graph snapshot
+      description: |
+        Export the entire graph state as a base64-encoded string. The snapshot
+        includes all nodes, edges, weights, and internal GRU state.
+
+        Use this to persist the graph to disk, transfer it between environments,
+        or create backups before destructive operations.
+      tags:
+        - Graph Management
+      responses:
+        "200":
+          description: Base64-encoded graph snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphSnapshot"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainGraph
+
+            graph = MembrainGraph()
+            snapshot = graph.save()
+
+            # Write to file for later
+            with open("graph.snapshot", "w") as f:
+                f.write(snapshot)
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const fs = require('fs');
+            const { MembrainGraph } = require('membrain');
+
+            const graph = new MembrainGraph();
+            const snapshot = graph.save();
+
+            // Write to file for later
+            fs.writeFileSync('graph.snapshot', snapshot);
+
+    post:
+      operationId: graph_load
+      summary: Import graph snapshot
+      description: |
+        Import a previously exported graph snapshot. This creates a **new** graph
+        instance from the base64-encoded data — it does not merge into an existing graph.
+
+        The snapshot must have been created by the same version of Membrain.
+      tags:
+        - Graph Management
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GraphSnapshot"
+      responses:
+        "200":
+          description: Graph loaded successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  node_count:
+                    type: integer
+                    description: Number of nodes in the loaded graph.
+                    example: 150
+                  edge_count:
+                    type: integer
+                    description: Number of edges in the loaded graph.
+                    example: 420
+        "400":
+          description: Invalid or corrupt snapshot data.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainGraph
+
+            with open("graph.snapshot") as f:
+                snapshot = f.read()
+
+            graph = MembrainGraph.load(snapshot)
+            print(graph.node_count())
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const fs = require('fs');
+            const { MembrainGraph } = require('membrain');
+
+            const snapshot = fs.readFileSync('graph.snapshot', 'utf-8');
+            const graph = MembrainGraph.load(snapshot);
+            console.log(graph.nodeCount());
+
+  # ──────────────────────────────────────────────
+  # Statistics
+  # ──────────────────────────────────────────────
+  /stats:
+    get:
+      operationId: get_stats
+      summary: Get storage statistics
+      description: |
+        Retrieve aggregate statistics about the memory store: total count, breakdown
+        by memory type, storage usage in bytes, embedding count, average confidence,
+        and number of distinct agents.
+      tags:
+        - Statistics
+      responses:
+        "200":
+          description: Storage statistics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorageStats"
+      x-codeSamples:
+        - lang: Python
+          label: Python
+          source: |
+            from membrain import MembrainClient
+
+            client = MembrainClient()
+            stats = client.stats()
+            print(f"Total: {stats['total_memories']}, Size: {stats['storage_bytes']} bytes")
+        - lang: JavaScript
+          label: Node.js
+          source: |
+            const { MembrainClient } = require('membrain');
+
+            const client = new MembrainClient();
+            const stats = client.stats();
+            console.log(`Total: ${stats.total_memories}, Size: ${stats.storage_bytes} bytes`);
+
+components:
+  schemas:
+    # ──────────────────────────────────────────────
+    # Memory Schemas
+    # ──────────────────────────────────────────────
+    StoreResult:
+      type: object
+      description: |
+        Result of a store operation. A memory may be stored as new, merged with
+        an existing memory, or rejected by the write pipeline.
+      required:
+        - success
+        - duration_ms
+      properties:
+        success:
+          type: boolean
+          description: Whether the operation completed successfully.
+        id:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: UUID of the stored memory. `null` if the memory was rejected.
+        merged_with:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: UUID of the existing memory this was merged into. `null` if stored as new.
+        rejection_reason:
+          type:
+            - string
+            - "null"
+          description: Human-readable reason the memory was rejected. `null` if accepted.
+        duration_ms:
+          type: integer
+          description: Time taken to process the operation, in milliseconds.
+      example:
+        success: true
+        id: 550e8400-e29b-41d4-a716-446655440000
+        merged_with: null
+        rejection_reason: null
+        duration_ms: 5
+
+    MemoryEntry:
+      type: object
+      description: A memory returned in search results, with its relevance score.
+      required:
+        - id
+        - content
+        - score
+        - memory_type
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique memory identifier.
+        content:
+          type: string
+          description: Text content of the memory.
+        score:
+          type: number
+          format: double
+          description: Relevance score from 0.0 (no match) to 1.0 (perfect match).
+        memory_type:
+          type: string
+          description: |
+            Type classification. Format is `category_subtype`, e.g.:
+            - `semantic_fact`, `semantic_preference`, `semantic_concept`, `semantic_entity`
+            - `episodic_event`, `episodic_observation`
+            - `procedural_workflow`, `procedural_skill`, `procedural_pattern`
+            - `agent_state_goal`, `agent_state_task`
+      example:
+        id: 550e8400-e29b-41d4-a716-446655440000
+        content: The user prefers dark mode
+        score: 0.95
+        memory_type: semantic_preference
+
+    SearchResults:
+      type: object
+      description: Results from a search query, ranked by relevance.
+      required:
+        - memories
+        - was_gated
+        - duration_ms
+      properties:
+        memories:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemoryEntry"
+          description: Matching memories ranked by relevance score (highest first).
+        was_gated:
+          type: boolean
+          description: Whether results were filtered by the gating pipeline.
+        duration_ms:
+          type: integer
+          description: Time taken in milliseconds.
+      example:
+        memories:
+          - id: 550e8400-e29b-41d4-a716-446655440000
+            content: The user prefers dark mode
+            score: 0.95
+            memory_type: semantic_preference
+        was_gated: false
+        duration_ms: 12
+
+    MemoryInfo:
+      type: object
+      description: Full information about a stored memory.
+      required:
+        - id
+        - content
+        - memory_type
+        - confidence
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique memory identifier.
+        content:
+          type: string
+          description: Text content of the memory.
+        memory_type:
+          type: string
+          description: Type classification (e.g. `semantic_fact`, `episodic_event`).
+        confidence:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: Confidence score from 0.0 (uncertain) to 1.0 (certain).
+      example:
+        id: 550e8400-e29b-41d4-a716-446655440000
+        content: The user prefers dark mode
+        memory_type: semantic_preference
+        confidence: 0.9
+
+    StorageStats:
+      type: object
+      description: Aggregate statistics about the memory store.
+      required:
+        - total_memories
+        - by_type
+        - storage_bytes
+        - embeddings_count
+        - avg_confidence
+        - agent_count
+      properties:
+        total_memories:
+          type: integer
+          description: Total number of stored memories.
+        by_type:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Memory count broken down by type.
+          example:
+            semantic_fact: 50
+            semantic_preference: 20
+            episodic_event: 30
+            procedural_workflow: 10
+        storage_bytes:
+          type: integer
+          description: Total storage used in bytes.
+        embeddings_count:
+          type: integer
+          description: Number of embedding vectors stored.
+        avg_confidence:
+          type: number
+          format: double
+          description: Average confidence score across all memories.
+        agent_count:
+          type: integer
+          description: Number of distinct agents that have stored memories.
+      example:
+        total_memories: 150
+        by_type:
+          semantic_fact: 50
+          semantic_preference: 20
+          episodic_event: 30
+          procedural_workflow: 10
+        storage_bytes: 524288
+        embeddings_count: 150
+        avg_confidence: 0.82
+        agent_count: 3
+
+    # ──────────────────────────────────────────────
+    # Graph Schemas
+    # ──────────────────────────────────────────────
+    AddNodeRequest:
+      type: object
+      description: Request to add a memory as a node in the graph.
+      required:
+        - memory_id
+        - embedding
+      properties:
+        memory_id:
+          type: string
+          format: uuid
+          description: UUID of the stored memory to add as a graph node.
+          example: 550e8400-e29b-41d4-a716-446655440000
+        embedding:
+          type: array
+          items:
+            type: number
+            format: float
+          description: |
+            Embedding vector for this memory. Must match the graph's configured
+            `embedding_dim` (default 768). Used for edge creation and query similarity.
+          example: [0.1, 0.2, 0.3]
+        confidence:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          default: 0.5
+          description: Confidence score for this node. Higher confidence nodes receive more attention during traversal.
+          example: 0.9
+      example:
+        memory_id: 550e8400-e29b-41d4-a716-446655440000
+        embedding: [0.1, 0.2, 0.3]
+        confidence: 0.9
+
+    GraphQueryRequest:
+      type: object
+      description: Request to run a multi-hop graph traversal query.
+      required:
+        - embedding
+      properties:
+        embedding:
+          type: array
+          items:
+            type: number
+            format: float
+          description: |
+            Query embedding vector. Must match the graph's configured `embedding_dim`
+            (default 768). The query starts at nodes most similar to this vector.
+          example: [0.1, 0.2, 0.3]
+        max_hops:
+          type: integer
+          default: -1
+          description: |
+            Maximum number of hops to traverse. Set to `-1` to use the graph's
+            configured default (typically 3). Higher values explore more of the
+            graph but take longer.
+          example: 3
+        top_k:
+          type: integer
+          default: 10
+          minimum: 1
+          description: Number of top-scoring nodes to return.
+          example: 5
+      example:
+        embedding: [0.1, 0.2, 0.3]
+        max_hops: 3
+        top_k: 5
+
+    GraphQueryResult:
+      type: object
+      description: Result of a multi-hop graph traversal query.
+      required:
+        - nodes
+        - traversed_edges
+        - hops_performed
+        - nodes_visited
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphScoredNode"
+          description: Top-k nodes ranked by traversal score (highest first).
+        traversed_edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphTraversalStep"
+          description: Edges followed during traversal, with attention scores.
+        hops_performed:
+          type: integer
+          description: Number of hops actually performed (may be less than `max_hops` if the traversal converged early).
+          example: 3
+        nodes_visited:
+          type: integer
+          description: Total number of unique nodes touched during traversal.
+          example: 12
+      example:
+        nodes:
+          - memory_id: 550e8400-e29b-41d4-a716-446655440000
+            score: 0.95
+            hop_distance: 1
+          - memory_id: 660e8400-e29b-41d4-a716-446655440001
+            score: 0.82
+            hop_distance: 2
+        traversed_edges:
+          - from: 770e8400-e29b-41d4-a716-446655440002
+            to: 550e8400-e29b-41d4-a716-446655440000
+            edge_weight: 0.8
+            attention_score: 0.6
+            hop: 1
+        hops_performed: 3
+        nodes_visited: 12
+
+    GraphScoredNode:
+      type: object
+      description: A graph node with its traversal score and distance from the query origin.
+      required:
+        - memory_id
+        - score
+        - hop_distance
+      properties:
+        memory_id:
+          type: string
+          format: uuid
+          description: UUID of the memory this node represents.
+          example: 550e8400-e29b-41d4-a716-446655440000
+        score:
+          type: number
+          format: double
+          description: Traversal score from 0.0 to 1.0. Higher means more relevant.
+          example: 0.95
+        hop_distance:
+          type: integer
+          description: How many hops from the query origin this node was reached at.
+          example: 1
+      example:
+        memory_id: 550e8400-e29b-41d4-a716-446655440000
+        score: 0.95
+        hop_distance: 1
+
+    GraphTraversalStep:
+      type: object
+      description: A single edge traversal during a graph query.
+      required:
+        - from
+        - to
+        - edge_weight
+        - attention_score
+        - hop
+      properties:
+        from:
+          type: string
+          format: uuid
+          description: UUID of the source node.
+          example: 770e8400-e29b-41d4-a716-446655440002
+        to:
+          type: string
+          format: uuid
+          description: UUID of the destination node.
+          example: 550e8400-e29b-41d4-a716-446655440000
+        edge_weight:
+          type: number
+          format: double
+          description: Weight of this edge (0.0 to 1.0). Edges with weight below `min_weight` are pruned.
+          example: 0.8
+        attention_score:
+          type: number
+          format: double
+          description: Attention score computed by the multi-head attention mechanism for this traversal.
+          example: 0.6
+        hop:
+          type: integer
+          description: Which hop number this edge was traversed at.
+          example: 1
+      example:
+        from: 770e8400-e29b-41d4-a716-446655440002
+        to: 550e8400-e29b-41d4-a716-446655440000
+        edge_weight: 0.8
+        attention_score: 0.6
+        hop: 1
+
+    GraphPruningResult:
+      type: object
+      description: Result of a graph pruning operation.
+      required:
+        - edges_removed
+        - nodes_removed
+        - edges_remaining
+        - nodes_remaining
+      properties:
+        edges_removed:
+          type: integer
+          description: Number of edges removed because their weight decayed below `min_weight`.
+          example: 5
+        nodes_removed:
+          type: integer
+          description: Number of orphan nodes removed (nodes with no remaining edges).
+          example: 0
+        edges_remaining:
+          type: integer
+          description: Number of edges still in the graph after pruning.
+          example: 415
+        nodes_remaining:
+          type: integer
+          description: Number of nodes still in the graph after pruning.
+          example: 150
+      example:
+        edges_removed: 5
+        nodes_removed: 0
+        edges_remaining: 415
+        nodes_remaining: 150
+
+    GraphSnapshot:
+      type: object
+      description: |
+        A complete graph state serialized as a base64-encoded string.
+        Includes all nodes, edges, weights, and internal GRU state.
+      required:
+        - data
+      properties:
+        data:
+          type: string
+          format: byte
+          description: Base64-encoded graph state.
+          example: eyJub2RlcyI6W10sImVkZ2VzIjpbXX0=
+      example:
+        data: eyJub2RlcyI6W10sImVkZ2VzIjpbXX0=
+
+    # ──────────────────────────────────────────────
+    # Error
+    # ──────────────────────────────────────────────
+    Error:
+      type: object
+      description: |
+        Error response. The `code` field maps to FFI status codes:
+        - `-1` — null pointer (internal)
+        - `-2` — invalid argument
+        - `-3` — storage error
+        - `-4` — serialization error
+        - `-5` — pipeline error
+        - `-6` — not found
+        - `-7` — config error
+        - `-8` — graph error
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+          example: "embedding dimension mismatch: expected 768, got 512"
+        code:
+          type: integer
+          description: FFI status code.
+          enum: [-1, -2, -3, -4, -5, -6, -7, -8]
+      example:
+        error: "embedding dimension mismatch: expected 768, got 512"
+        code: -8

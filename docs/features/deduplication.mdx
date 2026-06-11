@@ -1,0 +1,199 @@
+---
+title: Automatic Deduplication
+description: Merge similar memories to avoid redundancy
+icon: copy
+---
+
+# Automatic Deduplication
+
+Membrain automatically detects and merges similar memories to prevent redundancy and maintain a clean knowledge base.
+
+## How It Works
+
+When storing a new memory, Membrain:
+1. Searches for similar existing memories
+2. If similarity exceeds threshold, merges them
+3. Keeps highest confidence value
+4. Updates metadata with merge information
+
+<Info>
+Deduplication happens automatically during `store_*` operations. No manual intervention needed.
+</Info>
+
+## Configuring Deduplication
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+
+# Default: deduplication enabled with 0.95 threshold
+client = MembrainClient()
+
+# Custom threshold
+client = MembrainClient({"deduplication_threshold": 0.9})
+
+# Disable deduplication
+client = MembrainClient({"enable_deduplication": False})
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+// Default: deduplication enabled with 0.95 threshold
+const client = new MembrainClient();
+
+// Custom threshold
+const client2 = new MembrainClient({ deduplication_threshold: 0.9 });
+
+// Disable deduplication
+const client3 = new MembrainClient({ enable_deduplication: false });
+```
+
+```rust Rust
+use membrain_core::{MembrainClient, Config};
+
+// Default: deduplication enabled with 0.95 threshold
+let client = MembrainClient::new(None)?;
+
+// Custom threshold
+let config = Config {
+    deduplication_threshold: 0.9,
+    ..Default::default()
+};
+let client2 = MembrainClient::new(Some(config))?;
+
+// Disable deduplication
+let config3 = Config {
+    enable_deduplication: false,
+    ..Default::default()
+};
+let client3 = MembrainClient::new(Some(config3))?;
+```
+</CodeGroup>
+
+## Example: Preventing Duplicates
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+
+client = MembrainClient({"deduplication_threshold": 0.95})
+
+# Store first fact
+result1 = client.store_fact("Python is a programming language", 0.9)
+print(f"Stored: {result1.id}")
+
+# Try to store very similar fact
+result2 = client.store_fact("Python is a programming language used for development", 0.85)
+
+if result2.merged:
+    print(f"Merged with existing memory: {result2.merged_with_id}")
+    print(f"Final confidence: {result2.confidence}")
+else:
+    print(f"Stored as new: {result2.id}")
+
+client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient({ deduplication_threshold: 0.95 });
+
+// Store first fact
+const result1 = client.storeFact('Python is a programming language', 0.9);
+console.log(`Stored: ${result1.id}`);
+
+// Try to store very similar fact
+const result2 = client.storeFact('Python is a programming language used for development', 0.85);
+
+if (result2.merged) {
+    console.log(`Merged with existing memory: ${result2.mergedWithId}`);
+    console.log(`Final confidence: ${result2.confidence}`);
+} else {
+    console.log(`Stored as new: ${result2.id}`);
+}
+
+client.close();
+```
+
+```rust Rust
+use membrain_core::{MembrainClient, Config};
+
+let config = Config {
+    deduplication_threshold: 0.95,
+    ..Default::default()
+};
+let client = MembrainClient::new(Some(config))?;
+
+// Store first fact
+let result1 = client.store_fact("Python is a programming language", 0.9)?;
+println!("Stored: {}", result1.id);
+
+// Try to store very similar fact
+let result2 = client.store_fact("Python is a programming language used for development", 0.85)?;
+
+if result2.merged {
+    println!("Merged with existing memory: {}", result2.merged_with_id.unwrap());
+    println!("Final confidence: {}", result2.confidence);
+} else {
+    println!("Stored as new: {}", result2.id);
+}
+```
+</CodeGroup>
+
+## Confidence Merging Strategy
+
+When merging, Membrain uses the **maximum confidence**:
+
+```
+merged_confidence = max(existing_confidence, new_confidence)
+```
+
+This ensures the most confident version is preserved.
+
+## Threshold Guidelines
+
+<ParamField path="0.98+" type="string">
+  Very strict - only exact duplicates merge
+</ParamField>
+
+<ParamField path="0.95 (default)" type="string">
+  Recommended - merges near-duplicates
+</ParamField>
+
+<ParamField path="0.90-0.94" type="string">
+  Moderate - merges similar content
+</ParamField>
+
+<ParamField path="< 0.90" type="string">
+  Loose - may merge unrelated content (not recommended)
+</ParamField>
+
+## Benefits
+
+<CardGroup cols={2}>
+  <Card title="Storage Efficiency" icon="hard-drive">
+    Reduces redundant storage
+  </Card>
+  <Card title="Cleaner Knowledge Base" icon="sparkles">
+    Prevents information duplication
+  </Card>
+  <Card title="Better Search" icon="magnifying-glass">
+    Avoids duplicate results
+  </Card>
+  <Card title="Confidence Tracking" icon="chart-line">
+    Maintains highest confidence
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Confidence Scoring" icon="gauge" href="/features/confidence-scoring">
+    Track certainty levels
+  </Card>
+  <Card title="Semantic Search" icon="magnifying-glass" href="/features/semantic-search">
+    Find relevant memories
+  </Card>
+</CardGroup>

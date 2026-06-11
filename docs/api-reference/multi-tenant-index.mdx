@@ -1,0 +1,120 @@
+---
+title: Multi-Tenant Index
+description: Namespace-isolated vector index for per-tenant memory
+icon: layer-group
+---
+
+# Multi-Tenant Index
+
+`MultiTenantIndex` gives each tenant its own isolated vector index. The registry lock is held only briefly for tenant lookup; all vector operations run against the tenant's own concurrent index, so there is zero cross-tenant contention.
+
+Use this when one process serves many users or workspaces and each needs independent memory.
+
+Supported backends per tenant: `"flat"`, `"hnsw"`, `"lsh"`.
+
+## Quickstart
+
+<CodeGroup>
+```python Python
+from membrain import MultiTenantIndex
+
+index = MultiTenantIndex(dimension=1536, index_type="hnsw")
+
+index.create_tenant("user-123")
+index.create_tenant("user-456")
+
+index.add("user-123", "vec-1", [0.1] * 1536)
+results = index.search("user-123", [0.1] * 1536, k=10)
+
+# user-456 sees nothing from user-123
+empty = index.search("user-456", [0.1] * 1536, k=10)
+assert len(empty) == 0
+
+index.close()
+```
+
+```javascript JavaScript
+import { MultiTenantIndex } from "membrain";
+
+const index = new MultiTenantIndex({ dimension: 1536, indexType: "hnsw" });
+
+index.createTenant("user-123");
+index.createTenant("user-456");
+
+index.add("user-123", "vec-1", Array(1536).fill(0.1));
+const results = index.search("user-123", Array(1536).fill(0.1), 10);
+
+const empty = index.search("user-456", Array(1536).fill(0.1), 10);
+console.log(empty.length);  // 0
+
+index.close();
+```
+</CodeGroup>
+
+## Constructor
+
+<CodeGroup>
+```python Python
+MultiTenantIndex(
+    dimension: int = 1536,
+    index_type: str = "flat",        # "flat" | "hnsw" | "lsh"
+    max_tenants: int = 0,            # 0 = unlimited
+    index_config: dict | None = None,
+    *,
+    lib_path: str | None = None,
+)
+```
+
+```javascript JavaScript
+new MultiTenantIndex({
+  dimension?: number,       // 1536
+  indexType?: string,       // "flat" | "hnsw" | "lsh"
+  maxTenants?: number,      // 0 = unlimited
+  indexConfig?: object,
+  libPath?: string,
+})
+```
+</CodeGroup>
+
+`index_config` / `indexConfig` is passed to every tenant's index (e.g. `{"m": 32, "ef_search": 64}` for HNSW).
+
+## Tenant management
+
+| Method | Returns | Notes |
+|---|---|---|
+| `create_tenant(id)` | `void` | Raises if tenant exists or `max_tenants` reached. |
+| `delete_tenant(id)` | `bool` | `True` if existed + removed. Also frees all its vectors. |
+| `has_tenant(id)` | `bool` | |
+| `list_tenants()` | `list[str]` | Sorted alphabetically. |
+| `tenant_count()` | `int` | |
+
+## Per-tenant operations
+
+| Method | Description |
+|---|---|
+| `add(tenant_id, id, embedding)` | Auto-creates the tenant if missing. |
+| `remove(tenant_id, id)` | |
+| `search(tenant_id, query, k=10)` | Only matches vectors owned by this tenant. |
+| `tenant_len(tenant_id)` | Vector count for one tenant. |
+
+## Patterns
+
+**Lazy tenant creation** — `add()` implicitly creates a tenant, so you can skip `create_tenant()` unless you need `max_tenants` enforcement.
+
+**Per-tenant teardown** — delete a tenant when a user account is removed:
+
+```python
+if not user_still_active(user_id):
+    index.delete_tenant(user_id)
+```
+
+**Tenant cap for a free tier:**
+
+```python
+index = MultiTenantIndex(dimension=768, max_tenants=10_000)
+```
+
+## See also
+
+- [MemscaleDB multi-tenant](/memscaledb/multi-tenant) — isolation guarantees, lock design.
+- [Concurrent indices](/api-reference/concurrent-indices) — single-tenant thread-safe variants.

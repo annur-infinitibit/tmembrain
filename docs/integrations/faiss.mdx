@@ -1,0 +1,126 @@
+---
+title: FAISS
+description: Meta's GPU-accelerated similarity search — scales to billions of vectors
+icon: microchip
+---
+
+# FAISS
+
+FAISS (Facebook AI Similarity Search) is an in-process library optimised for raw throughput. It is the right choice when you need GPU acceleration or are working with very large vector sets (hundreds of millions+).
+
+<CardGroup cols={2}>
+  <Card title="Install" icon="package" color="#f59e0b">
+    `pip install faiss-cpu` or `pip install faiss-gpu`
+  </Card>
+  <Card title="GPU support" icon="cpu" color="#10b981">
+    Drop-in GPU acceleration for 10x+ speedups on large indexes.
+  </Card>
+  <Card title="Scale" icon="chart-line">
+    Proven at billions-of-vectors scale with quantised indexes.
+  </Card>
+  <Card title="Server" icon="ban" color="#ef4444">
+    None — runs entirely in-process alongside your app.
+  </Card>
+</CardGroup>
+
+## Setup
+
+```bash
+pip install faiss-cpu   # CPU only
+
+# or, for GPU acceleration:
+pip install faiss-gpu
+```
+
+<Warning>
+  FAISS does not persist indexes to disk automatically. See the [persistence note](#persistence) below.
+</Warning>
+
+## Usage
+
+### CPU
+
+```python
+from membrain import MembrainClient, FAISSBackend
+
+backend = FAISSBackend(
+    dimension=1536,
+    index_type="IVF100,Flat",   # see index type guide below
+    use_gpu=False,
+)
+
+client = MembrainClient(vector_backend=backend)
+
+client.store_fact("FAISS scales to billions of vectors", 0.9)
+results = client.search("scaling", limit=5)
+
+for m in results.memories:
+    print(f"{m.content}  (score {m.score:.2f})")
+
+client.close()
+```
+
+### GPU
+
+```python
+from membrain import MembrainClient, FAISSBackend
+
+backend = FAISSBackend(
+    dimension=1536,
+    index_type="IVF4096,PQ32",  # compressed; good for > 1M vectors
+    use_gpu=True,                # requires faiss-gpu
+)
+
+client = MembrainClient(vector_backend=backend)
+```
+
+## Index type guide
+
+Choosing the right index type is the single most impactful tuning knob for FAISS.
+
+| Index type | Best for | Notes |
+|---|---|---|
+| `Flat` | < 10K vectors | Exact (brute-force) search. Highest accuracy, slowest at scale. |
+| `IVF100,Flat` | 10K – 1M vectors | Partitioned index. Good balance of speed and accuracy. |
+| `IVF4096,PQ32` | > 1M vectors | Quantised. Much lower memory footprint; slight accuracy trade-off. |
+| `HNSW32` | General purpose | Graph-based. Fast without a GPU; good default when unsure. |
+
+<Tip>
+  Start with `IVF100,Flat` for most workloads. If memory becomes a constraint at scale, switch to `IVF4096,PQ32`.
+</Tip>
+
+## Configuration options
+
+| Key | Description | Default |
+|---|---|---|
+| `dimension` | Embedding vector length — must match your model | — |
+| `index_type` | FAISS index factory string | `Flat` |
+| `use_gpu` | Route the index to the first available GPU | `False` |
+
+## Persistence
+
+FAISS does not write the index to disk on its own. Two approaches:
+
+1. **Save on shutdown** — call the backend's save method before your process exits and reload at startup.
+2. **Versioned-memory pattern** — wrap every write in a versioned event so you can replay the index from Membrain's durable storage. See [Versioned Memory](/cookbooks/advanced-patterns#versioned-memory) for the pattern.
+
+<Note>
+  FAISS is currently available as a Python-only backend. There is no stable Node.js binding for FAISS. For JavaScript applications, consider using Qdrant, ChromaDB, or the built-in MemscaleDB.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Qdrant" icon="server" href="/integrations/qdrant">
+    Persistent, distributed production search
+  </Card>
+  <Card title="ChromaDB" icon="layers" href="/integrations/chromadb">
+    Lightest persistent option for LLM apps
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Comparison, config reference & custom backends
+  </Card>
+  <Card title="Advanced Patterns" icon="wand-magic-sparkles" href="/cookbooks/advanced-patterns">
+    Connection pooling, versioned memory, monitoring
+  </Card>
+</CardGroup>

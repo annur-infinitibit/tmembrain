@@ -1,0 +1,160 @@
+---
+title: Advanced Patterns
+description: Patterns and optimizations beyond the basics
+icon: wand-magic-sparkles
+---
+
+# Advanced Patterns
+
+Recipes for teams running Membrain in production.
+
+## Deduplication on insert
+
+Near-duplicate facts are merged automatically when `enable_deduplication` is on (default). The returned `StoreResult` tells you whether a merge happened.
+
+<CodeGroup>
+```python Python
+r = client.store_fact("Paris is located in France", 0.9)
+if r.merged_with:
+    print(f"Merged into {r.merged_with}")
+```
+
+```javascript JavaScript
+const r = client.storeFact("Paris is located in France", 0.9);
+if (r.merged_with) console.log(`Merged into ${r.merged_with}`);
+```
+</CodeGroup>
+
+Tune with `deduplication_threshold` (default `0.95`). Lower = more aggressive merging.
+
+## Two-step retrieval with a reranker
+
+Fetch a wide candidate set, then rerank for precision.
+
+<CodeGroup>
+```python Python
+from membrain import CohereReranker
+candidates = client.search(query, limit=30)
+top = CohereReranker(api_key="...").rerank(query, candidates, top_k=5)
+```
+
+```javascript JavaScript
+import { CohereReranker } from "membrain";
+const candidates = client.search(query, 30);
+const top = await new CohereReranker({ apiKey: "..." }).rerank(query, candidates, 5);
+```
+</CodeGroup>
+
+## Batch inserts
+
+Reuse the client; let the server coalesce writes.
+
+<CodeGroup>
+```python Python
+for fact, conf in corpus:
+    client.store_fact(fact, conf)
+```
+
+```javascript JavaScript
+for (const [fact, conf] of corpus) client.storeFact(fact, conf);
+```
+</CodeGroup>
+
+For very large corpora, push through an index directly:
+
+```python
+from membrain import ConcurrentHnswIndex
+idx = ConcurrentHnswIndex(dimension=1536)
+for vec_id, vec in vectors: idx.add(vec_id, vec)
+```
+
+## Confidence decay
+
+Mark facts as stale over time — old claims should lose weight relative to fresh ones.
+
+```python
+client = MembrainClient({
+    "enable_confidence_decay": True,
+    "decay_half_life_days": 30,
+})
+```
+
+Search scores attenuate accordingly, so fresher memories surface first.
+
+## Filtering by memory type
+
+Narrow search to a single layer:
+
+<CodeGroup>
+```python Python
+results = client.search_with_filters(
+    query="deployment pipeline",
+    memory_types=["workflow"],
+    limit=5,
+)
+```
+
+```javascript JavaScript
+const results = client.searchWithFilters({
+  query: "deployment pipeline",
+  memory_types: ["workflow"],
+  limit: 5,
+});
+```
+</CodeGroup>
+
+## Graph-augmented retrieval
+
+When chained reasoning beats single-hop similarity, mirror memories into [`MembrainGraph`](/features/graph-memory) and query multi-hop:
+
+```python
+hops = graph.query(embed(question), max_hops=3, top_k=6)
+memories = [client.get(n.memory_id) for n in hops.nodes]
+```
+
+## Multi-tenant isolation
+
+One process, many users. Each tenant's vectors are fully isolated — see [`MultiTenantIndex`](/api-reference/multi-tenant-index).
+
+```python
+from membrain import MultiTenantIndex
+index = MultiTenantIndex(dimension=1536, index_type="hnsw")
+index.add("user-123", "vec-1", emb)
+```
+
+## Scale horizontally
+
+Pick the right index for the working-set size:
+
+| Vectors | Use |
+|---|---|
+| ~1M, single node | `MembrainIndex` (HNSW) |
+| ~10M, single node | [`MembrainShardedIndex`](/api-reference/sharded-index) |
+| > 10M or replication | [`MembrainDistributedIndex`](/api-reference/distributed-index) |
+
+## Pluggable vector store
+
+Swap HNSW for a managed vector DB via [Vector backends](/api-reference/vector-backends):
+
+```python
+from membrain.vector_backends import QdrantBackend
+client = MembrainClient(vector_backend=QdrantBackend(url="...", collection="mem"))
+```
+
+## Case-based learning
+
+Store conversation outcomes as cases; retrieve them for future similar problems.
+
+```python
+client.store_case(problem="Fix slow API", plan="Add index on user_id",
+                  outcome="p99 2s -> 50ms", reward=1.0)
+cases = client.search_cases("API performance", limit=5)
+```
+
+Use [`Conversation.end()`](/api-reference/conversation) to capture cases automatically.
+
+## See also
+
+- [Configuration](/advanced/configuration) — every tunable.
+- [Performance](/advanced/performance) — benchmarks and profiling.
+- [MemscaleDB overview](/memscaledb/overview) — index internals.

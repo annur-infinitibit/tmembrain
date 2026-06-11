@@ -1,0 +1,56 @@
+name: node
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  MEMBRAIN_LIB_PATH: ${{ github.workspace }}/target/debug/libmembrain_ffi.so
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["18", "20"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: build ffi
+        run: cargo build -p membrain-ffi
+      - name: install node sdk
+        working-directory: membrain-node
+        run: npm install
+      - name: typecheck
+        working-directory: membrain-node
+        run: npx tsc --noEmit
+      - name: build
+        working-directory: membrain-node
+        run: npm run build
+      - name: test sdk with coverage
+        working-directory: membrain-node
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+          JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: npx c8 --reporter=text --reporter=lcov --lines 80 --check-coverage node --test tests/*.mjs
+      - name: integration tests
+        working-directory: tests/node
+        run: |
+          npm install
+          node --test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: node-coverage-${{ matrix.node-version }}
+          path: membrain-node/coverage/lcov.info
+          retention-days: 7
+          if-no-files-found: ignore

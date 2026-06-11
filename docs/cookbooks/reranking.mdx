@@ -1,0 +1,344 @@
+---
+title: Reranking
+description: Improve retrieval quality with cross encoder and LLM-based rerankers
+icon: arrow-up-wide-short
+---
+
+# Cookbook: Reranking Search Results
+
+Reranking is a second-pass scoring step that dramatically improves retrieval
+quality. After Membrain's initial search returns candidates, a reranker
+scores each query-document pair with deeper semantic understanding and
+reorders the results by relevance.
+
+Membrain provides two categories of rerankers:
+
+- **Cross encoder rerankers** (Cohere, Jina) -- purpose-built models trained
+  specifically for relevance scoring. Fast, accurate, and cost-effective.
+- **LLM-based rerankers** (OpenAI, Anthropic) -- general-purpose language
+  models prompted to score relevance. More flexible but slower and more
+  expensive.
+
+## Two-Step Retrieval Flow
+
+```
+1. client.search(query, limit=20)   --> Initial candidates from Membrain
+2. reranker.rerank(query, results)   --> Reranked top-k by semantic relevance
+```
+
+The pattern is the same for all rerankers: retrieve a broad set of candidates,
+then narrow them down with the reranker.
+
+## Cross Encoder Reranking
+
+### Cohere Reranker
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, CohereReranker
+
+memory = MembrainClient()
+
+# Store some facts
+memory.store_fact("Python was created by Guido van Rossum in 1991", 0.95)
+memory.store_fact("JavaScript was created by Brendan Eich in 1995", 0.9)
+memory.store_fact("Rust was created by Graydon Hoare at Mozilla", 0.9)
+memory.store_fact("Python is widely used in machine learning", 0.85)
+memory.store_fact("Guido van Rossum worked at Google and Dropbox", 0.8)
+
+# Step 1: Broad search
+results = memory.search("Who created Python?", limit=20)
+
+# Step 2: Rerank with Cohere
+reranker = CohereReranker(
+    api_key="your-cohere-api-key",
+    model="rerank-v3.5",  # or rerank-english-v3.0, rerank-multilingual-v3.0
+)
+reranked = reranker.rerank("Who created Python?", results, top_k=3)
+
+for entry in reranked.memories:
+    print(f"[{entry.relevance_score:.3f}] {entry.content}")
+
+print(f"Reranking took {reranked.duration_ms}ms via {reranked.provider}/{reranked.model}")
+
+memory.close()
+```
+
+```javascript JavaScript
+import { MembrainClient, CohereReranker } from "membrain";
+
+const memory = new MembrainClient();
+
+// Store some facts
+memory.storeFact("Python was created by Guido van Rossum in 1991", 0.95);
+memory.storeFact("JavaScript was created by Brendan Eich in 1995", 0.9);
+memory.storeFact("Rust was created by Graydon Hoare at Mozilla", 0.9);
+memory.storeFact("Python is widely used in machine learning", 0.85);
+memory.storeFact("Guido van Rossum worked at Google and Dropbox", 0.8);
+
+// Step 1: Broad search
+const results = memory.search("Who created Python?", 20);
+
+// Step 2: Rerank with Cohere
+const reranker = new CohereReranker({
+  apiKey: "your-cohere-api-key",
+  model: "rerank-v3.5", // or rerank-english-v3.0, rerank-multilingual-v3.0
+});
+const reranked = await reranker.rerank("Who created Python?", results, 3);
+
+for (const entry of reranked.memories) {
+  console.log(`[${entry.relevance_score.toFixed(3)}] ${entry.content}`);
+}
+
+console.log(`Reranking took ${reranked.duration_ms}ms via ${reranked.provider}/${reranked.model}`);
+
+memory.close();
+```
+</CodeGroup>
+
+### Jina Reranker
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, JinaReranker
+
+memory = MembrainClient()
+
+# ... store memories ...
+
+results = memory.search("machine learning frameworks", limit=20)
+
+reranker = JinaReranker(
+    api_key="your-jina-api-key",
+    model="jina-reranker-v2-base-multilingual",  # or jina-colbert-v2
+)
+reranked = reranker.rerank("machine learning frameworks", results, top_k=5)
+
+for entry in reranked.memories:
+    print(f"[{entry.relevance_score:.3f}] {entry.content}")
+
+memory.close()
+```
+
+```javascript JavaScript
+import { MembrainClient, JinaReranker } from "membrain";
+
+const memory = new MembrainClient();
+
+// ... store memories ...
+
+const results = memory.search("machine learning frameworks", 20);
+
+const reranker = new JinaReranker({
+  apiKey: "your-jina-api-key",
+  model: "jina-reranker-v2-base-multilingual", // or jina-colbert-v2
+});
+const reranked = await reranker.rerank("machine learning frameworks", results, 5);
+
+for (const entry of reranked.memories) {
+  console.log(`[${entry.relevance_score.toFixed(3)}] ${entry.content}`);
+}
+
+memory.close();
+```
+</CodeGroup>
+
+## LLM-Based Reranking
+
+LLM rerankers prompt a language model to score each document's relevance to
+the query on a 0--10 scale, then normalize scores to 0.0--1.0.
+
+### OpenAI Reranker
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, OpenAIReranker
+
+memory = MembrainClient()
+
+# ... store memories ...
+
+results = memory.search("benefits of Rust for systems programming", limit=20)
+
+reranker = OpenAIReranker(
+    api_key="your-openai-api-key",
+    model="gpt-4o-mini",  # or gpt-4o for higher quality
+)
+reranked = reranker.rerank("benefits of Rust for systems programming", results, top_k=5)
+
+for entry in reranked.memories:
+    print(f"[{entry.relevance_score:.3f}] {entry.content}")
+
+memory.close()
+```
+
+```javascript JavaScript
+import { MembrainClient, OpenAIReranker } from "membrain";
+
+const memory = new MembrainClient();
+
+// ... store memories ...
+
+const results = memory.search("benefits of Rust for systems programming", 20);
+
+const reranker = new OpenAIReranker({
+  apiKey: "your-openai-api-key",
+  model: "gpt-4o-mini", // or gpt-4o for higher quality
+});
+const reranked = await reranker.rerank(
+  "benefits of Rust for systems programming",
+  results,
+  5,
+);
+
+for (const entry of reranked.memories) {
+  console.log(`[${entry.relevance_score.toFixed(3)}] ${entry.content}`);
+}
+
+memory.close();
+```
+</CodeGroup>
+
+### Anthropic Reranker
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, AnthropicReranker
+
+memory = MembrainClient()
+
+# ... store memories ...
+
+results = memory.search("how do attention mechanisms work?", limit=20)
+
+reranker = AnthropicReranker(
+    api_key="your-anthropic-api-key",
+    model="claude-sonnet-4-5-20250929",  # or claude-haiku-4-5-20251001
+)
+reranked = reranker.rerank("how do attention mechanisms work?", results, top_k=5)
+
+for entry in reranked.memories:
+    print(f"[{entry.relevance_score:.3f}] {entry.content}")
+
+memory.close()
+```
+
+```javascript JavaScript
+import { MembrainClient, AnthropicReranker } from "membrain";
+
+const memory = new MembrainClient();
+
+// ... store memories ...
+
+const results = memory.search("how do attention mechanisms work?", 20);
+
+const reranker = new AnthropicReranker({
+  apiKey: "your-anthropic-api-key",
+  model: "claude-sonnet-4-5-20250929", // or claude-haiku-4-5-20251001
+});
+const reranked = await reranker.rerank(
+  "how do attention mechanisms work?",
+  results,
+  5,
+);
+
+for (const entry of reranked.memories) {
+  console.log(`[${entry.relevance_score.toFixed(3)}] ${entry.content}`);
+}
+
+memory.close();
+```
+</CodeGroup>
+
+## Custom Endpoints
+
+All rerankers accept an optional `endpoint` parameter to point at self-hosted
+models or API proxies. This works with vLLM, Ollama, text-generation-inference,
+or any API-compatible service.
+
+<CodeGroup>
+```python Python
+from membrain import CohereReranker, OpenAIReranker
+
+# Self-hosted cross encoder behind a compatible API
+reranker = CohereReranker(
+    api_key="not-needed",
+    endpoint="http://localhost:8080/v1/rerank",
+)
+
+# Local LLM via Ollama with OpenAI-compatible API
+reranker = OpenAIReranker(
+    api_key="not-needed",
+    model="llama3",
+    endpoint="http://localhost:11434/v1/chat/completions",
+)
+```
+
+```javascript JavaScript
+import { CohereReranker, OpenAIReranker } from "membrain";
+
+// Self-hosted cross encoder behind a compatible API
+const crossEncoder = new CohereReranker({
+  apiKey: "not-needed",
+  endpoint: "http://localhost:8080/v1/rerank",
+});
+
+// Local LLM via Ollama with OpenAI-compatible API
+const llmReranker = new OpenAIReranker({
+  apiKey: "not-needed",
+  model: "llama3",
+  endpoint: "http://localhost:11434/v1/chat/completions",
+});
+```
+</CodeGroup>
+
+## Configuration Reference
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `api_key` / `apiKey` | string | required | API key for the provider |
+| `model` | string | varies | Model identifier (see per-provider defaults below) |
+| `top_k` / `topK` | int | 5 | Number of results to keep after reranking |
+| `endpoint` | string | provider URL | Override the API endpoint URL |
+| `timeout` | int | 30 (s) / 30000 (ms) | Request timeout |
+
+### Default Models by Provider
+
+| Provider | Type | Default Model |
+|----------|------|---------------|
+| Cohere | Cross encoder | `rerank-v3.5` |
+| Jina | Cross encoder | `jina-reranker-v2-base-multilingual` |
+| OpenAI | LLM | `gpt-4o-mini` |
+| Anthropic | LLM | `claude-sonnet-4-5-20250929` |
+
+## Best Practices
+
+**When to use cross encoder vs LLM rerankers:**
+
+- Use **cross encoder** rerankers (Cohere, Jina) for production workloads.
+  They are faster, cheaper, and purpose-built for relevance scoring.
+- Use **LLM rerankers** (OpenAI, Anthropic) when you need more nuanced
+  understanding, domain-specific reasoning, or are already calling an LLM
+  in your pipeline.
+
+**Tuning `top_k` and initial `limit`:**
+
+- Set the initial search `limit` to 3--5x your desired `top_k`. For example,
+  if you want 5 final results, search with `limit=20`.
+- Increasing `limit` gives the reranker more candidates but increases cost
+  (especially for LLM rerankers that scale with document count).
+
+**Cost considerations:**
+
+- Cross encoder APIs charge per query and are very affordable at scale.
+- LLM rerankers send all documents in a single prompt, so cost scales with
+  total document length. Keep initial `limit` reasonable (10--30).
+
+<CardGroup cols={2}>
+  <Card title="Basic Usage" icon="book" href="/cookbooks/basic-usage">
+    Core Membrain operations and RAG patterns
+  </Card>
+  <Card title="Advanced Patterns" icon="wand-magic-sparkles" href="/cookbooks/advanced-patterns">
+    Multi-agent memory, graph queries, and more
+  </Card>
+</CardGroup>

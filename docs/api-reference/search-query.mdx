@@ -1,0 +1,45 @@
+---
+title: Search & Query
+description: Search and retrieve memories
+icon: magnifying-glass
+---
+
+# Search & Query API
+
+Search for relevant memories using semantic similarity.
+
+See [Semantic Search](/features/semantic-search) for comprehensive documentation.
+
+## Search Methods
+
+### Text Search
+
+```python
+result = client.search(query, limit=10)
+```
+
+Returns memories semantically similar to the query.
+
+### Embedding Search
+
+```python
+result = client.search_by_embedding(embedding, limit=10)
+```
+
+Search using a pre-computed embedding vector.
+
+### Type-Filtered Search
+
+```python
+result = client.search(query, limit=10, memory_type="fact")
+```
+
+Search within a specific memory type.
+
+## Search Results
+
+SearchResult contains:
+- `memories`: Array of Memory objects
+- Each Memory has: `id`, `content`, `score`, `confidence`, `created_at`
+
+For detailed examples, see [Semantic Search](/features/semantic-search).

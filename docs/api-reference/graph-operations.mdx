@@ -1,0 +1,59 @@
+---
+title: Graph Operations
+description: Work with graph memory for multi-hop queries
+icon: diagram-project
+---
+
+# Graph Operations API
+
+Multi-hop graph traversal for discovering complex relationships.
+
+See [Graph Memory](/features/graph-memory) for comprehensive documentation.
+
+## MembrainGraph
+
+### Create Graph
+
+```python
+from membrain import MembrainGraph
+
+graph = MembrainGraph(config)
+```
+
+### Add Nodes
+
+```python
+graph.add_node(memory_id, embedding, confidence)
+```
+
+Nodes are automatically connected based on attention scores.
+
+### Query Graph
+
+```python
+result = graph.query(query_embedding, max_hops=3, top_k=10)
+```
+
+Returns nodes discovered through multi-hop traversal.
+
+### Prune Edges
+
+```python
+# Remove edges below threshold
+count = graph.prune(threshold=0.5)
+
+# Remove bottom N%
+count = graph.prune_percentile(0.2)
+```
+
+### Persistence
+
+```python
+# Save state
+state = graph.serialize()
+
+# Load state
+graph = MembrainGraph.deserialize(state)
+```
+
+For detailed examples, see [Graph Memory](/features/graph-memory).

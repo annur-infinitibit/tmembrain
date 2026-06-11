@@ -1,0 +1,182 @@
+---
+title: Installation
+description: Install Membrain for Python, JavaScript, and Rust
+icon: download
+---
+
+# Installation
+
+Get Membrain up and running in your preferred language.
+
+## Python
+
+<Steps>
+  <Step title="Install via pip">
+    ```bash
+    pip install membrain
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    ```python
+    from membrain import MembrainClient
+
+    client = MembrainClient()
+    print("Membrain is ready!")
+    client.close()
+    ```
+  </Step>
+</Steps>
+
+### Custom Library Path
+
+If the FFI library is not auto-detected:
+
+```python
+from membrain import MembrainClient
+
+client = MembrainClient(lib_path="/path/to/libmembrain_ffi.so")
+```
+
+Or set the environment variable:
+
+```bash
+export MEMBRAIN_LIB_PATH=/path/to/libmembrain_ffi.so
+```
+
+## JavaScript
+
+<Steps>
+  <Step title="Install via npm">
+    ```bash
+    npm install membrain
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    ```javascript
+    import { MembrainClient } from 'membrain';
+
+    const client = new MembrainClient();
+    console.log('Membrain is ready!');
+    client.close();
+    ```
+  </Step>
+</Steps>
+
+### Custom Library Path
+
+If needed, set the environment variable:
+
+```bash
+export MEMBRAIN_LIB_PATH=/path/to/libmembrain_ffi.so
+```
+
+## Rust
+
+<Steps>
+  <Step title="Add to Cargo.toml">
+    ```toml
+    [dependencies]
+    membrain-core = "0.1.0"
+    membrain-storage = "0.1.0"
+    membrain-index = "0.1.0"
+    ```
+  </Step>
+
+  <Step title="Verify Installation">
+    ```rust
+    use membrain_core::MembrainClient;
+
+    fn main() {
+        let client = MembrainClient::new(None).unwrap();
+        println!("Membrain is ready!");
+    }
+    ```
+  </Step>
+</Steps>
+
+## Building from Source
+
+<Tabs>
+  <Tab title="Linux">
+    ```bash
+    # Clone repository
+    git clone https://github.com/membrain/membrain.git
+    cd membrain
+
+    # Build FFI library
+    cargo build --release -p membrain-ffi
+
+    # Library location
+    ls target/release/libmembrain_ffi.so
+    ```
+  </Tab>
+
+  <Tab title="macOS">
+    ```bash
+    # Clone repository
+    git clone https://github.com/membrain/membrain.git
+    cd membrain
+
+    # Build FFI library
+    cargo build --release -p membrain-ffi
+
+    # Library location
+    ls target/release/libmembrain_ffi.dylib
+    ```
+  </Tab>
+
+  <Tab title="Windows">
+    ```bash
+    # Clone repository
+    git clone https://github.com/membrain/membrain.git
+    cd membrain
+
+    # Build FFI library
+    cargo build --release -p membrain-ffi
+
+    # Library location
+    dir target\release\membrain_ffi.dll
+    ```
+  </Tab>
+</Tabs>
+
+## System Requirements
+
+<CardGroup cols={2}>
+  <Card title="Operating Systems" icon="desktop">
+    - Linux (Ubuntu 20.04+, Debian 11+)
+    - macOS (11+)
+    - Windows 10/11
+  </Card>
+
+  <Card title="Runtime" icon="microchip">
+    - Python 3.8+
+    - Node.js 16+
+    - Rust 1.75+ (for building from source)
+  </Card>
+</CardGroup>
+
+## Optional: GPU Acceleration
+
+MemscaleDB uses **wgpu** for GPU-accelerated batch distance computation. This works cross-platform with Vulkan, Metal, and DirectX 12 -- no CUDA installation required.
+
+Build with GPU support:
+
+```bash
+cargo build -p membrain-ffi --features gpu
+```
+
+See [GPU Acceleration](/memscaledb/gpu-acceleration) for more details.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first LLM with memory
+  </Card>
+  <Card title="Core Features" icon="sparkles" href="/features/memory-types">
+    Explore Membrain's capabilities
+  </Card>
+</CardGroup>

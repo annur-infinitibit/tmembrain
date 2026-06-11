@@ -1,0 +1,255 @@
+---
+title: MemscaleDB Overview
+description: Standalone vector database with six index types, SIMD acceleration, concurrent access, persistence, and multi-tenancy
+icon: bolt
+---
+
+# MemscaleDB
+
+MemscaleDB is Membrain's standalone vector database. It ships with the library, requires no external service, and provides six index types for different workloads. Every index supports SIMD-accelerated distance computation, query caching, atomic observability counters, and concurrent thread-safe variants.
+
+<CardGroup cols={2}>
+  <Card title="Zero Configuration" icon="check-circle" color="#10b981">
+    Works immediately with `MembrainClient()` or any index constructor. No external services required.
+  </Card>
+  <Card title="SIMD Acceleration" icon="microchip">
+    Auto-detected AVX2/SSE2 SIMD for distance calculations -- up to 8x throughput over scalar.
+  </Card>
+  <Card title="Six Index Types" icon="layer-group">
+    HNSW, Flat, IVF, LSH, Vamana, and Sharded -- pick the right algorithm for your data size and access pattern.
+  </Card>
+  <Card title="Persistence" icon="hard-drive">
+    MessagePack serialization, binary format, memory-mapped read-only indices, and write-ahead log for durability.
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+MemscaleDB powers the default vector backend for `MembrainClient`. No extra imports or config needed.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+
+client = MembrainClient()          # MemscaleDB by default
+
+client.store_fact("MemscaleDB is the default vector index", 0.9)
+results = client.search("vector index", limit=3)
+
+for m in results.memories:
+    print(f"{m.content}  (score {m.score:.2f})")
+
+client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient();   // MemscaleDB by default
+
+client.storeFact("MemscaleDB is the default vector index", 0.9);
+const results = client.search("vector index", 3);
+
+results.memories.forEach(m =>
+  console.log(`${m.content}  (score ${m.score.toFixed(2)})`)
+);
+
+client.close();
+```
+
+```rust Rust
+use memscaledb::{HnswIndex, VectorIndex, VectorId};
+
+let mut index = HnswIndex::new(384);
+
+index.add(VectorId::new(), &[0.1, 0.2, 0.3])?;
+let results = index.search(&[0.1, 0.2, 0.35], 5)?;
+```
+</CodeGroup>
+
+## Choosing the Right Index
+
+| Dataset size | Recommended index | Why |
+|---|---|---|
+| Under 10k vectors | [Flat](/memscaledb/flat) | Exact recall, zero configuration, fastest inserts |
+| 10k--10M vectors (dynamic inserts) | [HNSW](/memscaledb/hnsw) | Best recall-latency tradeoff, PQ compression, WAL persistence |
+| 10k--1M vectors (batch build) | [IVF](/memscaledb/ivf) | Partition-based, tunable nprobe for recall-speed tradeoff |
+| High-dimensional, streaming inserts | [LSH](/memscaledb/lsh) | Hash-based, no training phase, scales to 1536+ dimensions |
+| 100k+ vectors, sequential access | [Vamana](/memscaledb/vamana) | DiskANN-style bounded-degree graph, cache-friendly |
+| 100k--10M+ vectors, single process | [Sharded](/memscaledb/sharded) | Multi-shard HNSW with centroid routing |
+| Multi-node deployment | [Distributed](/memscaledb/distributed) | Consistent hashing with SWIM gossip |
+| Per-user or per-org isolation | [Multi-Tenant](/memscaledb/multi-tenant) | Namespace-based isolated indices |
+
+## Index Types
+
+<CardGroup cols={2}>
+  <Card title="HNSW" icon="bolt" href="/memscaledb/hnsw">
+    Multi-layer navigable graph. Best general-purpose index for dynamic workloads with high recall. Supports PQ compression, WAL, and memory-mapped persistence.
+  </Card>
+  <Card title="Flat" icon="bullseye-arrow" href="/memscaledb/flat">
+    Brute-force linear scan with 100% recall guarantee. Best for small datasets and as an accuracy baseline. Supports all five distance metrics.
+  </Card>
+  <Card title="IVF" icon="table-cells" href="/memscaledb/ivf">
+    Inverted file with Voronoi cell partitioning. Build from training data, then search only the most relevant cells. Tunable nprobe for recall-speed tradeoff.
+  </Card>
+  <Card title="LSH" icon="hashtag" href="/memscaledb/lsh">
+    Locality-sensitive hashing with random hyperplane projection. Sub-linear search time. No training phase needed -- add vectors incrementally.
+  </Card>
+  <Card title="Vamana" icon="circle-nodes" href="/memscaledb/vamana">
+    DiskANN-style bounded-degree graph with alpha-pruning. Sequential access patterns for cache-friendly traversal. Build from training data.
+  </Card>
+  <Card title="Sharded" icon="cubes" href="/memscaledb/sharded">
+    Multi-shard HNSW with centroid-based query routing. Parallel shard search with Rayon. Scales to millions of vectors in a single process.
+  </Card>
+</CardGroup>
+
+## Distance Metrics
+
+| Metric | Indices | Best for |
+|---|---|---|
+| **Cosine** (default) | All | LLM embeddings (OpenAI, Cohere, BGE) |
+| **Euclidean** | All | Spatial/geometric data |
+| **DotProduct** | Flat, IVF, LSH, Vamana | Pre-normalized embeddings |
+| **Manhattan** | Flat, IVF, LSH, Vamana | Feature vectors with sparse differences |
+| **Chebyshev** | Flat, IVF, LSH, Vamana | Worst-case dimension analysis |
+
+## Concurrent Access
+
+Every index type has a thread-safe concurrent variant that allows simultaneous reads and writes without external locking:
+
+| Index | Concurrent Variant |
+|---|---|
+| Flat | `ConcurrentFlatIndex` |
+| HNSW | `ConcurrentHnswIndex` |
+| IVF | `ConcurrentIvfIndex` |
+| LSH | `ConcurrentLshIndex` |
+| Vamana | `ConcurrentVamanaIndex` |
+
+All concurrent indices use `parking_lot::RwLock` internally. Multiple threads can search simultaneously; writes are serialized. See the [Concurrent Indices](/memscaledb/concurrent) page for details.
+
+## Persistence
+
+MemscaleDB provides multiple persistence options:
+
+| Method | Use case |
+|---|---|
+| **MessagePack** | Full graph serialization/deserialization. Compact, portable. |
+| **Binary format** | Contiguous vector layout for cache-friendly reads. |
+| **Memory-mapped (MmapIndex)** | Read-only index loaded from binary format. |
+| **Write-ahead log (WAL)** | Crash recovery via operation logging and periodic checkpoints. |
+| **Async WAL** | Batched background writes for 10-100x higher write throughput. |
+
+See the [HNSW](/memscaledb/hnsw#persistence) page for persistence API details.
+
+## Multi-Tenancy
+
+Namespace-based isolation where each tenant gets an independent concurrent vector index. Supports flat, HNSW, and LSH as per-tenant index types. See [Multi-Tenant](/memscaledb/multi-tenant) for details.
+
+## GPU Acceleration
+
+Optional wgpu-based GPU acceleration for batch distance computation. Beneficial for batch operations involving hundreds to tens of thousands of candidates. See [GPU Acceleration](/memscaledb/gpu-acceleration) for details.
+
+## Observability
+
+All index types expose atomic operation counters with zero overhead in hot paths:
+
+```rust
+let snapshot = index.metrics();
+println!("Searches: {}, Inserts: {}, Cache hits: {}",
+    snapshot.searches, snapshot.inserts, snapshot.cache_hits);
+```
+
+Key operations are instrumented with `tracing::info_span!` for integration with your observability stack.
+
+## MemscaleDB Configuration via MembrainClient
+
+Pass MemscaleDB parameters through the config dict when using the high-level `MembrainClient`:
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+
+client = MembrainClient(config={
+    "vector_db": {
+        "backend": "memscaledb",
+        "dimension": 1536,
+        "metric": "cosine",
+        "hnsw": {
+            "m": 32,
+            "ef_construction": 400,
+            "ef_search": 200,
+        },
+    }
+})
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient({
+  vector_db: {
+    backend: "memscaledb",
+    dimension: 1536,
+    metric: "cosine",
+    hnsw: {
+      m: 32,
+      ef_construction: 400,
+      ef_search: 200,
+    },
+  },
+});
+```
+</CodeGroup>
+
+## Metadata Filtering
+
+MemscaleDB supports post-filter metadata matching through `MembrainClient`. Store metadata on your memories, then pass a `metadata` filter to narrow results.
+
+<CodeGroup>
+```python Python
+results = client.search("language models", limit=5, filters={
+    "memory_types": ["semantic_fact"],
+    "min_confidence": 0.8,
+    "metadata": {"source": "arxiv", "year": 2024},
+})
+```
+
+```javascript JavaScript
+const results = client.search("language models", 5, {
+  memory_types: ["semantic_fact"],
+  min_confidence: 0.8,
+  metadata: { source: "arxiv", year: 2024 },
+});
+```
+</CodeGroup>
+
+### Available Filter Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `memory_types` | `string[]` | Filter by memory type (e.g. `"semantic_fact"`, `"episodic_event"`) |
+| `min_confidence` | `number` | Minimum confidence score (0.0-1.0) |
+| `tags` | `string[]` | Filter by tags (any match) |
+| `agent_id` | `string` | Filter by agent UUID |
+| `metadata` | `object` | Key-value pairs that must all match exactly |
+
+## Migrating Away from MemscaleDB
+
+When you outgrow the in-process model (e.g., you need distributed search), the [migration guide on the Qdrant page](/integrations/qdrant#migrating-from-memscaledb) walks you through exporting and re-importing with zero application-code changes.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="HNSW" icon="bolt" href="/memscaledb/hnsw">
+    The default production index -- graph-based approximate search
+  </Card>
+  <Card title="Flat" icon="bullseye-arrow" href="/memscaledb/flat">
+    Exact brute-force search for small datasets
+  </Card>
+  <Card title="Concurrent Indices" icon="arrows-rotate" href="/memscaledb/concurrent">
+    Thread-safe variants for multi-threaded workloads
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Comparison, config reference, and custom backends
+  </Card>
+</CardGroup>

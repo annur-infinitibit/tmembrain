@@ -1,0 +1,439 @@
+---
+title: MemscaleDB Multi-Tenant Indices
+description: Namespace-based multi-tenancy for isolated vector spaces within a single index instance
+icon: users
+---
+
+# MemscaleDB Multi-Tenant Indices
+
+Multi-tenancy provides namespace-based isolation where each tenant gets an independent concurrent vector index managed by a thread-safe registry. This is the proven approach used by production vector databases like Pinecone, Qdrant, and Weaviate.
+
+<CardGroup cols={2}>
+  <Card title="Namespace Isolation" icon="shield-halved" color="#10b981">
+    Each tenant's vectors are completely isolated. Adding to tenant A never appears in tenant B's searches.
+  </Card>
+  <Card title="Zero Cross-Tenant Contention" icon="gauge-high">
+    The registry lock is held only briefly for tenant lookups. Vector operations use the tenant's own concurrent index.
+  </Card>
+  <Card title="Multiple Index Types" icon="layer-group">
+    Choose flat, HNSW, or LSH as the per-tenant index type based on your performance requirements.
+  </Card>
+  <Card title="Thread-Safe" icon="arrows-rotate">
+    All operations are thread-safe. Multiple threads can work on different tenants simultaneously.
+  </Card>
+</CardGroup>
+
+## Supported Index Types
+
+| Index Type | Construction | Best For |
+|---|---|---|
+| `flat` | Incremental (`add`) | Exact search, small per-tenant datasets |
+| `hnsw` | Incremental (`add`) | Graph-based ANN, general purpose |
+| `lsh` | Incremental (`add`) | High-dimensional hashing |
+
+IVF and Vamana are not supported because they require bulk `build()` with training data.
+
+## Quick Start
+
+<CodeGroup>
+```python Python
+import uuid
+from membrain import MultiTenantIndex
+
+# Create a multi-tenant index with HNSW per tenant
+index = MultiTenantIndex(dimension=1536, index_type="hnsw")
+
+# Create isolated tenant namespaces
+index.create_tenant("user-alice")
+index.create_tenant("user-bob")
+
+# Add vectors to specific tenants
+alice_vec = str(uuid.uuid4())
+index.add("user-alice", alice_vec, [0.1] * 1536)
+
+# Alice can find her vector
+results = index.search("user-alice", [0.1] * 1536, k=10)
+print(f"Alice found {len(results)} results")
+
+# Bob's namespace is empty -- complete isolation
+results = index.search("user-bob", [0.1] * 1536, k=10)
+print(f"Bob found {len(results)} results")  # 0
+
+index.close()
+```
+
+```javascript JavaScript
+import { MultiTenantIndex } from "membrain";
+
+const index = new MultiTenantIndex({ dimension: 1536, indexType: "hnsw" });
+
+index.createTenant("user-alice");
+index.createTenant("user-bob");
+
+index.add("user-alice", crypto.randomUUID(), Array(1536).fill(0.1));
+
+// Alice can find her vector
+const aliceResults = index.search("user-alice", Array(1536).fill(0.1), 10);
+console.log(`Alice found ${aliceResults.length} results`);
+
+// Bob sees nothing
+const bobResults = index.search("user-bob", Array(1536).fill(0.1), 10);
+console.log(`Bob found ${bobResults.length} results`); // 0
+
+index.close();
+```
+
+```rust Rust
+use memscaledb::{
+    ConcurrentHnswIndex, ConcurrentVectorIndex, MultiTenantConfig,
+    MultiTenantIndex, VectorId,
+};
+use std::sync::Arc;
+
+let config = MultiTenantConfig {
+    dimension: 1536,
+    ..Default::default()
+};
+
+let index = MultiTenantIndex::new(config, |dim| {
+    Arc::new(ConcurrentHnswIndex::new(dim)) as Arc<dyn ConcurrentVectorIndex>
+});
+
+index.create_tenant("user-alice").expect("create alice");
+index.create_tenant("user-bob").expect("create bob");
+
+let id = VectorId::new();
+index.add("user-alice", id, &[0.1; 1536]).expect("add");
+
+// Alice can find it
+let results = index.search("user-alice", &[0.1; 1536], 10).expect("search");
+assert_eq!(results.len(), 1);
+
+// Bob cannot
+let results = index.search("user-bob", &[0.1; 1536], 10).expect("search");
+assert!(results.is_empty());
+```
+</CodeGroup>
+
+## Tenant Lifecycle
+
+<CodeGroup>
+```python Python
+from membrain import MultiTenantIndex
+
+index = MultiTenantIndex(dimension=1536, index_type="flat")
+
+# Create tenants
+index.create_tenant("team-a")
+index.create_tenant("team-b")
+
+# Check existence
+assert index.has_tenant("team-a")
+assert not index.has_tenant("team-c")
+
+# List all tenants (sorted alphabetically)
+tenants = index.list_tenants()  # ["team-a", "team-b"]
+count = index.tenant_count()    # 2
+
+# Delete a tenant and all its vectors
+found = index.delete_tenant("team-a")  # True
+found = index.delete_tenant("team-a")  # False (already deleted)
+
+index.close()
+```
+
+```javascript JavaScript
+import { MultiTenantIndex } from "membrain";
+
+const index = new MultiTenantIndex({ dimension: 1536, indexType: "flat" });
+
+index.createTenant("team-a");
+index.createTenant("team-b");
+
+console.log(index.hasTenant("team-a"));  // true
+console.log(index.hasTenant("team-c"));  // false
+
+const tenants = index.listTenants();  // ["team-a", "team-b"]
+const count = index.tenantCount();    // 2
+
+const found = index.deleteTenant("team-a");  // true
+
+index.close();
+```
+
+```rust Rust
+use memscaledb::{ConcurrentFlatIndex, ConcurrentVectorIndex, MultiTenantConfig, MultiTenantIndex};
+use std::sync::Arc;
+
+let config = MultiTenantConfig {
+    dimension: 1536,
+    ..Default::default()
+};
+
+let index = MultiTenantIndex::new(config, |dim| {
+    Arc::new(ConcurrentFlatIndex::new(dim)) as Arc<dyn ConcurrentVectorIndex>
+});
+
+index.create_tenant("team-a").expect("create");
+index.create_tenant("team-b").expect("create");
+
+assert!(index.has_tenant("team-a"));
+assert!(!index.has_tenant("team-c"));
+
+let tenants = index.list_tenants();  // ["team-a", "team-b"]
+let count = index.tenant_count();    // 2
+
+let found = index.delete_tenant("team-a");  // true
+```
+</CodeGroup>
+
+## Per-Tenant Operations
+
+All vector operations require a `tenant_id` parameter:
+
+<CodeGroup>
+```python Python
+import uuid
+from membrain import MultiTenantIndex
+
+index = MultiTenantIndex(dimension=3, index_type="flat")
+index.create_tenant("alice")
+
+# Add vectors
+vec_id = str(uuid.uuid4())
+index.add("alice", vec_id, [1.0, 0.0, 0.0])
+
+# Check count
+count = index.tenant_len("alice")  # 1
+
+# Search
+results = index.search("alice", [1.0, 0.1, 0.0], k=5)
+for r in results:
+    print(f"  {r.id}: score={r.score:.4f}")
+
+# Remove
+found = index.remove("alice", vec_id)  # True
+
+index.close()
+```
+
+```javascript JavaScript
+import { MultiTenantIndex } from "membrain";
+
+const index = new MultiTenantIndex({ dimension: 3, indexType: "flat" });
+index.createTenant("alice");
+
+const vecId = crypto.randomUUID();
+index.add("alice", vecId, [1.0, 0.0, 0.0]);
+
+const count = index.tenantLen("alice"); // 1
+
+const results = index.search("alice", [1.0, 0.1, 0.0], 5);
+for (const r of results) {
+  console.log(`  ${r.id}: score=${r.score.toFixed(4)}`);
+}
+
+const found = index.remove("alice", vecId); // true
+
+index.close();
+```
+
+```rust Rust
+use memscaledb::{ConcurrentFlatIndex, ConcurrentVectorIndex, MultiTenantConfig, MultiTenantIndex, VectorId};
+use std::sync::Arc;
+
+let config = MultiTenantConfig { dimension: 3, ..Default::default() };
+let index = MultiTenantIndex::new(config, |dim| {
+    Arc::new(ConcurrentFlatIndex::new(dim)) as Arc<dyn ConcurrentVectorIndex>
+});
+index.create_tenant("alice").expect("create");
+
+let id = VectorId::new();
+index.add("alice", id, &[1.0, 0.0, 0.0]).expect("add");
+
+let count = index.tenant_len("alice").expect("len"); // 1
+
+let results = index.search("alice", &[1.0, 0.1, 0.0], 5).expect("search");
+for r in &results {
+    println!("  {}: score={:.4}", r.id, r.score);
+}
+
+let found = index.remove("alice", &id).expect("remove"); // true
+```
+</CodeGroup>
+
+## Concurrency Model
+
+The multi-tenant index uses a two-level locking strategy:
+
+1. **Registry level**: A `RwLock<HashMap>` maps tenant IDs to their concurrent indices. This lock is held only briefly to look up or create a tenant.
+2. **Tenant level**: Each tenant's `ConcurrentVectorIndex` has its own internal locking. Vector operations run entirely within the tenant's lock scope.
+
+This means:
+- Operations on **different tenants** never contend with each other
+- Operations on the **same tenant** follow the concurrent index locking rules (reads parallel, writes serialized)
+- **Tenant creation/deletion** briefly acquires a write lock on the registry but does not block in-progress vector operations
+
+<CodeGroup>
+```python Python
+import threading
+import uuid
+from membrain import MultiTenantIndex
+
+index = MultiTenantIndex(dimension=128, index_type="hnsw")
+
+# Create tenants
+for i in range(4):
+    index.create_tenant(f"tenant-{i}")
+
+# Each thread works on its own tenant -- zero contention
+def worker(tenant_id):
+    for _ in range(100):
+        index.add(tenant_id, str(uuid.uuid4()), [0.5] * 128)
+    results = index.search(tenant_id, [0.5] * 128, k=10)
+    print(f"{tenant_id}: {len(results)} results")
+
+threads = [
+    threading.Thread(target=worker, args=(f"tenant-{i}",))
+    for i in range(4)
+]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+index.close()
+```
+
+```rust Rust
+use memscaledb::{
+    ConcurrentHnswIndex, ConcurrentVectorIndex, MultiTenantConfig,
+    MultiTenantIndex, VectorId,
+};
+use std::sync::Arc;
+use std::thread;
+
+let config = MultiTenantConfig { dimension: 128, ..Default::default() };
+let index = Arc::new(MultiTenantIndex::new(config, |dim| {
+    Arc::new(ConcurrentHnswIndex::new(dim)) as Arc<dyn ConcurrentVectorIndex>
+}));
+
+for i in 0..4 {
+    index.create_tenant(&format!("tenant-{i}")).expect("create");
+}
+
+let mut handles = vec![];
+for i in 0..4 {
+    let index = Arc::clone(&index);
+    handles.push(thread::spawn(move || {
+        let tenant_id = format!("tenant-{i}");
+        for _ in 0..100 {
+            index.add(&tenant_id, VectorId::new(), &[0.5; 128]).expect("add");
+        }
+    }));
+}
+
+for handle in handles {
+    handle.join().expect("thread panicked");
+}
+```
+</CodeGroup>
+
+## LLM Memory Example
+
+A common use case is per-user chat memory where each user's conversation embeddings are isolated:
+
+<CodeGroup>
+```python Python
+import uuid
+from membrain import MultiTenantIndex
+
+# Shared index for all users
+memory = MultiTenantIndex(dimension=1536, index_type="hnsw")
+
+def on_user_signup(user_id: str):
+    memory.create_tenant(user_id)
+
+def store_memory(user_id: str, text: str, embedding: list[float]):
+    memory_id = str(uuid.uuid4())
+    memory.add(user_id, memory_id, embedding)
+    return memory_id
+
+def recall_memories(user_id: str, query_embedding: list[float], k: int = 5):
+    return memory.search(user_id, query_embedding, k=k)
+
+def on_user_delete(user_id: str):
+    memory.delete_tenant(user_id)
+```
+
+```javascript JavaScript
+import { MultiTenantIndex } from "membrain";
+
+const memory = new MultiTenantIndex({ dimension: 1536, indexType: "hnsw" });
+
+function onUserSignup(userId) {
+  memory.createTenant(userId);
+}
+
+function storeMemory(userId, text, embedding) {
+  const memoryId = crypto.randomUUID();
+  memory.add(userId, memoryId, embedding);
+  return memoryId;
+}
+
+function recallMemories(userId, queryEmbedding, k = 5) {
+  return memory.search(userId, queryEmbedding, k);
+}
+
+function onUserDelete(userId) {
+  memory.deleteTenant(userId);
+}
+```
+</CodeGroup>
+
+## Configuration Reference
+
+### MultiTenantConfig
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `dimension` | `int` | `1536` | Vector dimension for all tenant indices |
+| `max_tenants` | `int` | `0` | Maximum number of tenants (0 = unlimited) |
+
+### Index Types
+
+The `index_type` parameter controls which concurrent index is created for each tenant:
+
+| Type | Config Object | Description |
+|---|---|---|
+| `"flat"` | `FlatConfig` | Brute-force exact search. Best for small per-tenant datasets. |
+| `"hnsw"` | `HnswConfig` | HNSW graph-based ANN. Best for general-purpose similarity search. |
+| `"lsh"` | `LshConfig` | Locality-sensitive hashing. Best for high-dimensional binary-like data. |
+
+Pass index-specific configuration via the `index_config` parameter:
+
+```python Python
+index = MultiTenantIndex(
+    dimension=1536,
+    index_type="hnsw",
+    max_tenants=1000,
+    index_config={"m": 16, "ef_construction": 200},
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Concurrent Indices" icon="arrows-rotate" href="/memscaledb/concurrent">
+    Learn about the concurrent index types that power each tenant
+  </Card>
+  <Card title="MemscaleDB HNSW" icon="bolt" href="/memscaledb/hnsw">
+    The default production index -- graph-based approximate search
+  </Card>
+  <Card title="MemscaleDB Flat" icon="table-cells" href="/memscaledb/flat">
+    Exact brute-force search for small datasets
+  </Card>
+  <Card title="MemscaleDB LSH" icon="hashtag" href="/memscaledb/lsh">
+    Locality-sensitive hashing for high-dimensional data
+  </Card>
+</CardGroup>

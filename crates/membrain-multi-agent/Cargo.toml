@@ -1,0 +1,18 @@
+[package]
+name = "membrain-multi-agent"
+version.workspace = true
+edition.workspace = true
+description = "Multi-agent trust and visibility for Membrain"
+
+[dependencies]
+membrain-core = { workspace = true }
+serde = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+
+[lints]
+workspace = true

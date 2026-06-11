@@ -1,0 +1,215 @@
+---
+title: Qdrant
+description: Production-scale vector search with metadata filtering and hybrid search
+icon: server
+---
+
+# Qdrant
+
+Qdrant is a purpose-built vector search engine. It is the recommended backend for production deployments that need metadata filtering, hybrid (vector + keyword) search, or horizontal scaling.
+
+<CardGroup cols={2}>
+  <Card title="Install" icon="package" color="#3b82f6">
+    `pip install qdrant-client` — that's it for the Python side.
+  </Card>
+  <Card title="Server" icon="server">
+    Run locally with Docker or use Qdrant Cloud for a managed, serverless option.
+  </Card>
+  <Card title="Hybrid search" icon="magnifying-glass" color="#10b981">
+    Combine vector similarity with keyword filtering in a single query.
+  </Card>
+  <Card title="Scale" icon="chart-line">
+    Scales to millions of vectors with built-in sharding and replication.
+  </Card>
+</CardGroup>
+
+## Setup
+
+**Install the client library:**
+
+```bash
+pip install qdrant-client
+```
+
+**Start the server locally:**
+
+```bash
+docker run -p 6333:6333 qdrant/qdrant
+```
+
+<Tip>
+  Qdrant Cloud offers a managed, serverless option — just swap the `url` and `api_key` below. No Docker required.
+</Tip>
+
+## Usage
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, QdrantBackend
+import os
+
+backend = QdrantBackend(
+    url=os.environ.get("QDRANT_URL", "http://localhost:6333"),
+    api_key=os.environ.get("QDRANT_API_KEY"),        # None for local
+    collection_name="membrain",
+    dimension=1536,                                   # must match your embedding model
+)
+
+client = MembrainClient(vector_backend=backend)
+
+client.store_fact("Qdrant supports hybrid search natively", 0.9)
+results = client.search("hybrid search", limit=5)
+
+for m in results.memories:
+    print(f"{m.content}  (score {m.score:.2f})")
+
+client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient({
+  vector_db: {
+    backend: "qdrant",
+    url: process.env.QDRANT_URL || "http://localhost:6333",
+    api_key: process.env.QDRANT_API_KEY,
+    collection_name: "membrain",
+    dimension: 1536,
+  },
+});
+
+client.storeFact("Qdrant supports hybrid search natively", 0.9);
+const results = client.search("hybrid search", 5);
+
+results.memories.forEach(m =>
+  console.log(`${m.content}  (score ${m.score.toFixed(2)})`)
+);
+
+client.close();
+```
+</CodeGroup>
+
+### Direct Backend Usage
+
+You can also use the `QdrantBackend` class directly for lower-level vector operations.
+
+<CodeGroup>
+```python Python
+from membrain import QdrantBackend
+
+backend = QdrantBackend(
+    url="http://localhost:6333",
+    collection_name="membrain",
+    api_key=None,         # optional
+    dimension=1536,
+)
+
+backend.ensure_collection()
+
+# Store a vector
+backend.store("mem-1", [0.1, 0.2, 0.3], {"type": "fact"})
+
+# Search
+results = backend.search([0.1, 0.2, 0.35], 5)
+for result in results:
+    print(f"{result.memory_id}: {result.score:.3f}")
+
+# Health check
+healthy = backend.health_check()
+print(f"Backend healthy: {healthy}")
+```
+
+```javascript JavaScript
+const { QdrantBackend } = require("membrain");
+
+const backend = new QdrantBackend({
+  url: "http://localhost:6333",
+  collectionName: "membrain",
+  apiKey: "your-key", // optional
+  dimension: 1536,
+});
+
+await backend.ensureCollection();
+
+// Store a vector
+await backend.store("mem-1", [0.1, 0.2, 0.3], { type: "fact" });
+
+// Search
+const results = await backend.search([0.1, 0.2, 0.35], 5);
+for (const result of results) {
+  console.log(`${result.memoryId}: ${result.score.toFixed(3)}`);
+}
+
+// Health check
+const healthy = await backend.healthCheck();
+console.log(`Backend healthy: ${healthy}`);
+```
+</CodeGroup>
+
+## Configuration options
+
+| Key | Description | Default |
+|---|---|---|
+| `url` | Qdrant server URL | `http://localhost:6333` |
+| `api_key` | Auth token (Qdrant Cloud or secured local) | `None` |
+| `collection_name` | Collection to use or create | `membrain` |
+| `dimension` | Embedding vector length — must match your model | — |
+
+## Migrating from MemscaleDB
+
+If you have been using the default MemscaleDB index and want to move to Qdrant, follow these steps. No application logic changes are needed — only the backend wiring.
+
+<Steps>
+  <Step title="Start Qdrant">
+    ```bash
+    docker run -p 6333:6333 qdrant/qdrant
+    ```
+  </Step>
+  <Step title="Export existing memories">
+    ```python
+    from membrain import MembrainClient
+
+    old = MembrainClient()                          # default MemscaleDB
+    memories = old.search("*", limit=10000)         # pull everything
+    old.close()
+    ```
+  </Step>
+  <Step title="Re-import into Qdrant">
+    ```python
+    from membrain import MembrainClient, QdrantBackend
+
+    backend = QdrantBackend(
+        url="http://localhost:6333",
+        collection_name="membrain",
+        dimension=1536,
+    )
+    new = MembrainClient(vector_backend=backend)
+
+    for m in memories.memories:
+        new.store_fact(m.content, m.score)          # re-indexed automatically
+
+    new.close()
+    ```
+  </Step>
+  <Step title="Update config everywhere">
+    Set `MEMBRAIN_VECTOR_DB_BACKEND=qdrant` (or pass the backend explicitly) wherever the client is created. Remove any `MEMBRAIN_LIB_PATH` overrides that were only needed for local dev.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="ChromaDB" icon="layers" href="/integrations/chromadb">
+    Lightest persistent option for LLM apps
+  </Card>
+  <Card title="FAISS" icon="cpu" href="/integrations/faiss">
+    GPU-accelerated, billions-of-vectors scale
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Comparison, config reference & custom backends
+  </Card>
+  <Card title="Advanced Patterns" icon="wand-magic-sparkles" href="/cookbooks/advanced-patterns">
+    Fallback chains, connection pooling, monitoring
+  </Card>
+</CardGroup>

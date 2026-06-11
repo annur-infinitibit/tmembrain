@@ -1,0 +1,653 @@
+---
+title: Architecture
+description: System design and internals of Membrain
+---
+
+# Membrain Architecture
+
+## Overview
+
+Membrain is a high-performance memory layer designed specifically for Large Language Models (LLMs). It provides semantic search, graph-based relationships, and multi-agent coordination to give LLMs persistent memory, context retention, and knowledge retrieval capabilities. Built with a modular Rust core and FFI bindings for Python and JavaScript.
+
+## Architecture Layers
+
+```
+┌─────────────────────────────────────┐
+│     LLM Frameworks                  │
+│  (LangChain, LlamaIndex, AutoGen,   │
+│   CrewAI, LangGraph)                │
+├─────────────────────────────────────┤
+│     Language Bindings               │
+│  (Python ctypes, JS koffi)          │
+├─────────────────────────────────────┤
+│     C FFI Layer                     │
+│  (membrain-ffi crate)               │
+├─────────────────────────────────────┤
+│     Core Components                 │
+│                                     │
+│  ┌───────────┬──────────────────┐  │
+│  │  Storage  │  Index/Search    │  │
+│  ├───────────┼──────────────────┤  │
+│  │  Graph    │  Pipeline        │  │
+│  ├───────────┼──────────────────┤  │
+│  │  Jobs     │  Multi-Agent     │  │
+│  └───────────┴──────────────────┘  │
+├─────────────────────────────────────┤
+│     Vector Backends                 │
+│  (MemscaleDB, Qdrant, ChromaDB,    │
+│   FAISS, Milvus, Pinecone)         │
+└─────────────────────────────────────┘
+```
+
+## LLM Integration Patterns
+
+Membrain integrates seamlessly with LLM applications through three main patterns:
+
+### Pattern 1: RAG (Retrieval Augmented Generation)
+
+```python
+# Store document chunks
+memory.store_fact("Membrain supports semantic search", 0.9)
+
+# Retrieve relevant context
+context = memory.search(user_query, limit=5)
+
+# Inject into LLM prompt
+response = llm.chat(context + user_query)
+```
+
+### Pattern 2: Conversation Memory
+
+```python
+# Store conversation history
+memory.store_event("chat", f"User: {user_msg}")
+memory.store_event("chat", f"Assistant: {assistant_msg}")
+
+# Retrieve past context
+history = memory.search("previous discussion", limit=10)
+
+# Maintain context across sessions
+response = llm.chat(history + new_message)
+```
+
+### Pattern 3: Agent Memory
+
+```python
+# Store agent knowledge and state
+memory.store_skill("code_review", "Analyzes code quality")
+memory.store_goal("Help user debug application")
+
+# Retrieve relevant capabilities
+skills = memory.search("debugging", limit=3)
+
+# LLM agent uses memory to plan actions
+action = llm.plan(skills + current_task)
+```
+
+## Rust Workspace Structure
+
+### Crates
+
+<CardGroup cols={3}>
+  <Card title="membrain-core" icon="cube">
+    Core memory types and interfaces
+  </Card>
+  <Card title="membrain-storage" icon="database">
+    Persistence and retrieval
+  </Card>
+  <Card title="memscaledb" icon="magnifying-glass">
+    Standalone vector database (HNSW, Flat, IVF, LSH, Vamana, Sharded, Distributed, Multi-Tenant)
+  </Card>
+  <Card title="membrain-index" icon="plug">
+    Adapter bridging memscaledb to membrain-core
+  </Card>
+  <Card title="membrain-graph" icon="diagram-project">
+    Graph memory layer with multi-hop traversal
+  </Card>
+  <Card title="membrain-pipeline" icon="arrows-split-up-and-left">
+    Processing pipeline for memory ingestion
+  </Card>
+  <Card title="membrain-compression" icon="file-zipper">
+    Data compression
+  </Card>
+  <Card title="membrain-jobs" icon="clock">
+    Background job system
+  </Card>
+  <Card title="membrain-audit" icon="list-check">
+    Audit logging
+  </Card>
+  <Card title="membrain-multi-agent" icon="users">
+    Multi-agent coordination
+  </Card>
+  <Card title="membrain-conflict" icon="code-branch">
+    Conflict resolution for concurrent operations
+  </Card>
+  <Card title="membrain-ffi" icon="plug">
+    C ABI exports (cdylib)
+  </Card>
+</CardGroup>
+
+### Dependency Graph
+
+```
+membrain-ffi
+    ├─> membrain-core
+    ├─> membrain-storage
+    ├─> membrain-index (thin adapter)
+    │    └─> memscaledb (standalone vector database)
+    ├─> membrain-graph
+    ├─> membrain-pipeline
+    ├─> membrain-conflict
+    └─> membrain-multi-agent
+         └─> membrain-core
+```
+
+## Memory Types for LLMs
+
+<Tabs>
+  <Tab title="Episodic Memory">
+    Stores conversation history and temporal events for LLMs.
+
+    **Types:**
+    - `Event` - Chat messages, user actions, system events
+    - `Observation` - Insights about user behavior or preferences
+    - `Preference` - User/agent preferences with strength
+
+    **LLM Use Cases:**
+    - **Chatbot Memory:** Remember past conversations
+    - **Session Context:** Maintain context across chat sessions
+    - **User Profiling:** Learn user preferences over time
+    - **Interaction History:** Track what topics were discussed
+
+    ```python
+    memory.store_event("user_msg", "User asked about Python")
+    memory.store_observation("User prefers code examples")
+    ```
+  </Tab>
+
+  <Tab title="Semantic Memory">
+    Stores factual knowledge for RAG and knowledge grounding.
+
+    **Types:**
+    - `Fact` - Factual statements with confidence scores
+    - `Concept` - Definitions and explanations
+    - `Entity` - Named entities with type classification
+
+    **LLM Use Cases:**
+    - **RAG Systems:** Store document chunks for retrieval
+    - **Knowledge Base:** Domain-specific facts for LLM context
+    - **Fact Checking:** Verify LLM responses against stored facts
+    - **Context Injection:** Provide grounded information to LLMs
+
+    ```python
+    memory.store_fact("GPT-4 has 128k context window", 0.95)
+    memory.store_concept("RAG", "Retrieval Augmented Generation")
+    ```
+  </Tab>
+
+  <Tab title="Procedural Memory">
+    Stores LLM agent capabilities and workflows.
+
+    **Types:**
+    - `Workflow` - Multi-step procedures the agent can follow
+    - `Skill` - LLM agent capabilities and tools
+    - `Pattern` - Recognized patterns for decision making
+
+    **LLM Use Cases:**
+    - **Agent Capabilities:** Track what the LLM agent can do
+    - **Tool Selection:** Choose appropriate tools/skills
+    - **Workflow Execution:** Follow stored procedures
+    - **Learning:** Store successful patterns for reuse
+
+    ```python
+    memory.store_skill("code_review", "Analyzes code quality")
+    memory.store_workflow("debug", "1. Reproduce 2. Analyze 3. Fix")
+    ```
+  </Tab>
+
+  <Tab title="Agent State">
+    Stores LLM agent goals and task tracking.
+
+    **Types:**
+    - `Goal` - High-level objectives for the LLM agent
+    - `Task` - Actionable items and current work
+
+    **LLM Use Cases:**
+    - **Goal Tracking:** Remember what the agent is trying to achieve
+    - **Task Management:** Track multi-step tasks
+    - **Planning:** Help LLM agents plan and prioritize
+    - **Progress Monitoring:** Track completion of objectives
+
+    ```python
+    memory.store_goal("Help user build a web API")
+    memory.store_task("Design database schema")
+    ```
+  </Tab>
+</Tabs>
+
+## Core Components
+
+### Storage Layer
+
+**Location:** `crates/membrain-storage/`
+
+Handles persistence of all memory types.
+
+<AccordionGroup>
+  <Accordion title="Features">
+    - Key-value storage with memory ID indexing
+    - Type-specific serialization
+    - Atomic operations
+    - Statistics aggregation
+  </Accordion>
+
+  <Accordion title="Key Files">
+    - `src/lib.rs` - Storage interface
+    - Stores memories in a durable backend
+  </Accordion>
+</AccordionGroup>
+
+### Index Layer
+
+**Location:** `crates/memscaledb/` (standalone vector database) and `crates/membrain-index/` (adapter)
+
+The vector database layer consists of two components:
+- **memscaledb**: Standalone vector database with six index types (HNSW, Flat, IVF, LSH, Vamana, Sharded), SIMD acceleration, product quantization, persistence, WAL, distributed mode, and multi-tenancy
+- **membrain-index**: Thin adapter that bridges memscaledb to membrain-core types
+
+<AccordionGroup>
+  <Accordion title="Index Types">
+    - **HNSW** -- Multi-layer navigable graph for dynamic inserts (default)
+    - **Flat** -- Brute-force exact search with 100% recall
+    - **IVF** -- Inverted file with k-means partitioning
+    - **LSH** -- Locality-sensitive hashing for high-dimensional data
+    - **Vamana** -- DiskANN-style bounded-degree graph
+    - **Sharded** -- Multi-shard HNSW with centroid routing
+    - All types have thread-safe concurrent variants
+  </Accordion>
+
+  <Accordion title="Features">
+    - SIMD-accelerated distance computation (AVX2/SSE2)
+    - Five distance metrics (Cosine, Euclidean, DotProduct, Manhattan, Chebyshev)
+    - Product quantization for memory-efficient storage
+    - LRU query caching with automatic invalidation
+    - Atomic observability counters
+    - Batch search via Rayon parallelism
+    - Write-ahead log (sync and async) for crash recovery
+    - Memory-mapped read-only indices
+    - Distributed mode with consistent hashing and SWIM gossip
+    - Multi-tenant namespace isolation
+  </Accordion>
+</AccordionGroup>
+
+### Graph Layer
+
+**Location:** Integrated in `membrain-core/src/graph/`
+
+Multi-hop graph traversal with attention mechanism.
+
+**Features:**
+- Node embeddings with confidence scores
+- Attention-weighted edge formation
+- Multi-hop query traversal
+- Graph pruning for optimization
+- Serializable state (base64)
+
+**Architecture:**
+```
+Nodes: memory_id + embedding + confidence
+Edges: Attention-based (cosine similarity × confidence)
+Query: BFS/DFS with attention scoring
+```
+
+<Steps>
+  <Step title="Start Query">
+    Start with query embedding
+  </Step>
+  <Step title="Find Nearest">
+    Find k-nearest nodes (hop 0)
+  </Step>
+  <Step title="Traverse">
+    For each hop, traverse edges weighted by attention
+  </Step>
+  <Step title="Collect">
+    Collect scored nodes across hops
+  </Step>
+  <Step title="Return Results">
+    Return top-k results
+  </Step>
+</Steps>
+
+### Pipeline Layer
+
+**Location:** `crates/membrain-pipeline/`
+
+Processing pipeline for memory ingestion.
+
+<Steps>
+  <Step title="Validation">
+    Check input constraints
+  </Step>
+  <Step title="Deduplication">
+    Merge similar memories
+  </Step>
+  <Step title="Storage">
+    Persist to storage layer
+  </Step>
+  <Step title="Indexing">
+    Update search index
+  </Step>
+  <Step title="Graph Update">
+    Add/update graph nodes
+  </Step>
+</Steps>
+
+### Multi-Agent Layer
+
+**Location:** `crates/membrain-multi-agent/`
+
+Coordination for multi-agent systems.
+
+**Features:**
+- Shared knowledge base
+- Agent identity tracking
+- Cross-agent communication via observations
+- Collaborative learning
+
+## FFI Layer
+
+**Location:** `crates/membrain-ffi/`
+
+Exposes C ABI for language bindings.
+
+### Architecture
+
+```
+┌──────────────────┐
+│  Python/JS       │
+└────────┬─────────┘
+         │ JSON strings
+┌────────▼─────────┐
+│  C FFI Layer     │
+│  extern "C" fn   │
+└────────┬─────────┘
+         │ Rust types
+┌────────▼─────────┐
+│  MembrainClient  │
+│  (Rust core)     │
+└──────────────────┘
+```
+
+### Key Patterns
+
+<CardGroup cols={2}>
+  <Card title="Opaque Pointers" icon="cube">
+    Clients are opaque `void*` pointers
+  </Card>
+  <Card title="String Encoding" icon="text">
+    UTF-8 null-terminated strings
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation">
+    Thread-local error storage
+  </Card>
+  <Card title="Memory Management" icon="memory">
+    Caller must free strings with `membrain_string_free`
+  </Card>
+  <Card title="JSON Serialization" icon="code">
+    Complex types passed as JSON strings
+  </Card>
+</CardGroup>
+
+### Example Flow
+
+```c
+// Create client
+void* client = membrain_client_new();
+
+// Store fact
+char* out = NULL;
+int32_t code = membrain_store_fact(client, "Python is great", 0.9, &out);
+if (code == 0) {
+    // Parse JSON result
+    printf("Result: %s\n", out);
+    membrain_string_free(out);
+}
+
+// Clean up
+membrain_client_free(client);
+```
+
+## Language Bindings
+
+<Tabs>
+  <Tab title="Python (ctypes)">
+    **Location:** `membrain-py/`
+
+    - Direct ctypes binding to C ABI
+    - No compilation required
+    - Pythonic wrapper classes
+    - Context manager support
+
+    **Key Files:**
+    - `membrain/client.py` - Client implementation
+    - `membrain/types.py` - Data classes
+    - `membrain/errors.py` - Exception handling
+  </Tab>
+
+  <Tab title="JavaScript (koffi)">
+    **Location:** `membrain-node/`
+
+    - Uses koffi for FFI
+    - TypeScript definitions
+    - Promise-based API (future)
+    - Node.js and modern browsers
+
+    **Key Files:**
+    - `src/index.ts` - Client implementation
+    - `src/types.ts` - TypeScript interfaces
+  </Tab>
+</Tabs>
+
+## Data Flow
+
+<Tabs>
+  <Tab title="Store Operation (LLM Context)">
+    ```
+    LLM Application → Language Binding → FFI Layer → Pipeline
+      ↓
+    Validation → Deduplication → Storage → Index → Graph
+      ↓
+    StoreResult ← JSON ← FFI ← Language Binding ← LLM App
+    ```
+
+    **Example:** Storing LLM conversation
+    ```python
+    # After LLM generates response
+    memory.store_event("assistant_msg", llm_response)
+    ```
+  </Tab>
+
+  <Tab title="Search Operation (RAG)">
+    ```
+    LLM App (user query) → Language Binding → FFI Layer → Index
+      ↓
+    Vector Search → Top-K Results → Storage Lookup
+      ↓
+    SearchResults ← JSON ← FFI ← Language Binding
+      ↓
+    Context Injected into LLM Prompt → LLM generates response
+    ```
+
+    **Example:** RAG workflow
+    ```python
+    # 1. User asks question
+    query = "How do I use async in Python?"
+
+    # 2. Search memory for relevant context
+    context = memory.search(query, limit=5)
+
+    # 3. Inject into LLM
+    response = llm.chat(context + query)
+    ```
+  </Tab>
+
+  <Tab title="Graph Query (Complex Reasoning)">
+    ```
+    LLM App → Language Binding → FFI Layer → Graph
+      ↓
+    Multi-hop Traversal → Attention Scoring → Top-K
+      ↓
+    GraphQueryResult ← JSON ← FFI ← Language Binding
+      ↓
+    Related Concepts → LLM performs complex reasoning
+    ```
+
+    **Example:** Multi-hop knowledge retrieval
+    ```python
+    # Find related concepts through graph traversal
+    result = graph.query(query_embedding, max_hops=3)
+
+    # LLM uses interconnected knowledge
+    llm.chat(result.nodes + user_query)
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration
+
+Configuration is passed as JSON during client creation.
+
+**Common Options:**
+```json
+{
+  "max_memories": 100000,
+  "embedding_dim": 384,
+  "similarity_threshold": 0.85,
+  "hidden_dim": 128,
+  "graph_embedding_dim": 16,
+  "storage_path": "/data/membrain",
+  "compression_enabled": true,
+  "index_refresh_interval": 60
+}
+```
+
+## Thread Safety
+
+<Warning>
+  - **MembrainClient**: NOT thread-safe. Create one instance per thread.
+  - **MembrainGraph**: NOT thread-safe. Use locks or separate instances.
+</Warning>
+
+<Info>
+  **Internal Storage**: Uses interior mutability where needed (Mutex/RwLock)
+</Info>
+
+## Performance Characteristics
+
+### Storage
+- **Insert**: O(1) for storage + O(n) for deduplication check
+- **Get**: O(1) lookup by ID
+- **Delete**: O(1) removal
+
+### Index
+- **Search**: O(log n) to O(n) depending on index structure
+- **Update**: O(log n) insertion
+
+### Graph
+- **Add Node**: O(n) for edge creation (checks all existing nodes)
+- **Query**: O(k × h) where k = branching factor, h = hops
+- **Prune**: O(e) where e = number of edges
+
+## Future Enhancements
+
+<CardGroup cols={2}>
+  <Card title="Async API" icon="clock">
+    Non-blocking operations
+  </Card>
+  <Card title="Batch Operations" icon="layer-group">
+    Bulk insert/update
+  </Card>
+  <Card title="Incremental Indexing" icon="arrows-rotate">
+    Background index updates
+  </Card>
+  <Card title="Distributed Storage" icon="server">
+    Multi-node deployment
+  </Card>
+  <Card title="Custom Embeddings" icon="plug">
+    Pluggable embedding models
+  </Card>
+  <Card title="Query Language" icon="code">
+    Structured query DSL
+  </Card>
+  <Card title="Event Streaming" icon="stream">
+    Real-time memory updates
+  </Card>
+  <Card title="WASM Support" icon="globe">
+    Browser-based deployment
+  </Card>
+</CardGroup>
+
+## Development
+
+### Building
+
+```bash
+# Build all crates
+cargo build --release
+
+# Build FFI library only
+cargo build -p membrain-ffi --release
+
+# Run tests
+cargo test
+
+# Check formatting
+cargo fmt --check
+
+# Linting
+cargo clippy
+```
+
+### Adding a New Memory Type
+
+<Steps>
+  <Step title="Define Type">
+    Define type in `membrain-core/src/memory/`
+  </Step>
+  <Step title="Add to Enum">
+    Add to `MemoryType` enum
+  </Step>
+  <Step title="Implement Serialization">
+    Implement serialization
+  </Step>
+  <Step title="Add FFI Export">
+    Add FFI export in `membrain-ffi/src/c_api.rs`
+  </Step>
+  <Step title="Update Bindings">
+    Update language bindings
+  </Step>
+  <Step title="Add Tests">
+    Add tests
+  </Step>
+</Steps>
+
+### Library Locations
+
+After building:
+- **Linux**: `target/release/libmembrain_ffi.so`
+- **macOS**: `target/release/libmembrain_ffi.dylib`
+- **Windows**: `target/release/membrain_ffi.dll`
+
+## References
+
+<CardGroup cols={3}>
+  <Card title="Python API" icon="python" href="/api-reference/python-api">
+    Python API Reference
+  </Card>
+  <Card title="JavaScript API" icon="js" href="/api-reference/javascript-api">
+    JavaScript API Reference
+  </Card>
+  <Card title="Cookbooks" icon="book" href="/cookbooks/basic-usage">
+    Practical Examples
+  </Card>
+</CardGroup>

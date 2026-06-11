@@ -1,0 +1,739 @@
+---
+title: Python API
+description: Complete Python API documentation for Membrain
+icon: python
+---
+
+# Python API Reference
+
+Complete Python API for integrating Membrain with your LLM applications.
+
+## Installation
+
+```bash
+pip install membrain
+```
+
+## Quick LLM Integration Example
+
+```python
+from membrain import MembrainClient
+from openai import OpenAI
+
+memory = MembrainClient()
+llm = OpenAI()
+
+memory.store_fact("Python has a rich ecosystem for AI/ML", 0.9)
+
+user_query = "Why use Python for AI?"
+context = memory.search(user_query, limit=3)
+context_text = "\n".join([m.content for m in context.memories])
+
+response = llm.chat.completions.create(
+    model="gpt-4",
+    messages=[
+        {"role": "system", "content": f"Context:\n{context_text}"},
+        {"role": "user", "content": user_query}
+    ]
+)
+
+print(response.choices[0].message.content)
+memory.close()
+```
+
+## MembrainClient
+
+The main client for storing and querying memories in LLM applications.
+
+### Constructor
+
+```python
+MembrainClient(config: dict | None = None, *, lib_path: str | None = None)
+```
+
+<ParamField path="config" type="dict">
+  Optional configuration dictionary
+</ParamField>
+
+<ParamField path="lib_path" type="str">
+  Optional path to the shared library (overrides auto-detection)
+</ParamField>
+
+### Context Manager
+
+```python
+with MembrainClient() as client:
+    client.store_fact("Context managers are great")
+# Automatically closed
+```
+
+## Store Methods
+
+<AccordionGroup>
+  <Accordion title="store_fact">
+    ### `store_fact(statement: str, confidence: float = 0.8) -> StoreResult`
+
+    Store a factual statement in semantic memory.
+
+    ```python
+    result = client.store_fact("Python was created by Guido van Rossum", 0.95)
+    print(result.id)
+    ```
+  </Accordion>
+
+  <Accordion title="store_preference">
+    ### `store_preference(holder: str, subject: str, preference: str, strength: str = "moderate") -> StoreResult`
+
+    Store a preference relationship. Strength values: `"weak"`, `"moderate"`, `"strong"`.
+
+    ```python
+    client.store_preference("Alice", "coffee", "loves Ethiopian coffee", "strong")
+    ```
+  </Accordion>
+
+  <Accordion title="store_event">
+    ### `store_event(event_type: str, description: str) -> StoreResult`
+
+    Store an episodic event.
+
+    ```python
+    client.store_event("user_login", "User logged in from mobile app")
+    ```
+  </Accordion>
+
+  <Accordion title="store_observation">
+    ### `store_observation(content: str) -> StoreResult`
+
+    Store a general observation.
+
+    ```python
+    client.store_observation("User prefers dark mode")
+    ```
+  </Accordion>
+
+  <Accordion title="store_concept">
+    ### `store_concept(name: str, definition: str) -> StoreResult`
+
+    Store a concept definition.
+
+    ```python
+    client.store_concept("microservice", "A software architecture pattern...")
+    ```
+  </Accordion>
+
+  <Accordion title="store_entity">
+    ### `store_entity(name: str, entity_type: str) -> StoreResult`
+
+    Store an entity reference.
+
+    ```python
+    client.store_entity("Alice", "person")
+    ```
+  </Accordion>
+
+  <Accordion title="store_workflow">
+    ### `store_workflow(name: str, description: str) -> StoreResult`
+
+    Store a workflow or process.
+
+    ```python
+    client.store_workflow("deploy_app", "1. Run tests 2. Build image 3. Deploy")
+    ```
+  </Accordion>
+
+  <Accordion title="store_skill">
+    ### `store_skill(name: str, description: str) -> StoreResult`
+
+    Store an agent skill or capability.
+
+    ```python
+    client.store_skill("code_review", "Analyzes code for bugs and style issues")
+    ```
+  </Accordion>
+
+  <Accordion title="store_pattern">
+    ### `store_pattern(name: str, description: str, pattern_type: str) -> StoreResult`
+
+    Store a recognized pattern.
+
+    ```python
+    client.store_pattern("singleton", "Ensures a class has only one instance", "design_pattern")
+    ```
+  </Accordion>
+
+  <Accordion title="store_goal">
+    ### `store_goal(description: str) -> StoreResult`
+
+    Store an agent goal.
+
+    ```python
+    client.store_goal("Improve code coverage to 90%")
+    ```
+  </Accordion>
+
+  <Accordion title="store_task">
+    ### `store_task(title: str) -> StoreResult`
+
+    Store a task to be completed.
+
+    ```python
+    client.store_task("Refactor authentication module")
+    ```
+  </Accordion>
+
+  <Accordion title="store_case">
+    ### `store_case(problem: str, plan: str, outcome: str, reward: float, embedding: list[float] | None = None) -> StoreResult`
+
+    Store a case for case-based reasoning (CBR). Cases record problem-plan-outcome triplets with a reward signal.
+
+    ```python
+    client.store_case(
+        problem="User asked about Python concurrency",
+        plan="Explained asyncio, threading, and multiprocessing",
+        outcome="User understood the tradeoffs",
+        reward=0.9,
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Query Methods
+
+### `search(query: str, limit: int = 10, filters: dict | None = None) -> SearchResults`
+
+Search for memories matching a query using semantic similarity.
+
+<ParamField path="query" type="str" required>
+  The search query text.
+</ParamField>
+
+<ParamField path="limit" type="int" default={10}>
+  Maximum number of results to return.
+</ParamField>
+
+<ParamField path="filters" type="dict">
+  Optional filter criteria:
+  - `memory_types`: list of type strings (e.g. `["semantic_fact"]`)
+  - `min_confidence`: minimum confidence score (0.0-1.0)
+  - `tags`: list of tag strings (any match)
+  - `agent_id`: UUID string of the agent
+  - `metadata`: dict of key-value pairs (all must match exactly)
+</ParamField>
+
+```python
+results = client.search("Python programming", limit=5)
+for m in results.memories:
+    print(f"{m.content} (score: {m.score}, type: {m.memory_type})")
+
+# Search with filters
+results = client.search("research papers", limit=10, filters={
+    "memory_types": ["semantic_fact"],
+    "min_confidence": 0.8,
+    "metadata": {"source": "arxiv"},
+})
+```
+
+### `search_cases(query: str, limit: int = 5, positive_reward_threshold: float = 0.5) -> CaseSearchResults`
+
+Search for cases, split into positive and negative examples by reward threshold.
+
+```python
+cases = client.search_cases("concurrency in Python", limit=5)
+for case in cases.positive_cases:
+    print(f"Good example: {case.problem} -> {case.outcome}")
+for case in cases.negative_cases:
+    print(f"Bad example: {case.problem} -> {case.outcome}")
+```
+
+### `get(id: str) -> MemoryInfo | None`
+
+Retrieve a specific memory by ID.
+
+### `delete(id: str) -> bool`
+
+Delete a memory by ID.
+
+### `count() -> int`
+
+Get total number of stored memories.
+
+### `stats() -> dict`
+
+Get detailed storage statistics.
+
+### `close()`
+
+Explicitly release resources.
+
+---
+
+## MembrainGraph
+
+Graph-based memory layer with multi-hop traversal.
+
+### Constructor
+
+```python
+MembrainGraph(config: dict | None = None, *, lib_path: str | None = None)
+```
+
+### Node Operations
+
+- `add_node(memory_id: str, embedding: list[float], confidence: float = 0.5)` -- Add a node with an embedding vector.
+- `remove_node(memory_id: str)` -- Remove a node and all incident edges.
+
+### Query
+
+```python
+result = graph.query(embedding=[0.1, 0.2, ...], max_hops=3, top_k=5)
+for node in result.nodes:
+    print(f"{node.memory_id}: {node.score} (hop: {node.hop_distance})")
+```
+
+### Info and Pruning
+
+- `node_count() -> int`
+- `edge_count() -> int`
+- `prune() -> GraphPruningResult`
+
+### Persistence
+
+- `save() -> str` -- Serialize to base64 string.
+- `MembrainGraph.load(data: str) -> MembrainGraph` -- Restore from base64 string.
+
+---
+
+## Vector Indices
+
+MemscaleDB vector indices are available directly in Python for low-level vector operations.
+
+### MembrainIndex (HNSW)
+
+```python
+from membrain import MembrainIndex
+
+index = MembrainIndex(dimension=1536)
+# Or with config:
+index = MembrainIndex(config={"dimension": 1536, "m": 32, "ef_construction": 400})
+
+index.add("doc-1", embedding)
+results = index.search(query_embedding, k=10)
+removed = index.remove("doc-1")
+
+print(f"Count: {len(index)}, Dimension: {index.dimension}")
+
+# Persistence
+data = index.save()
+restored = MembrainIndex.load(data)
+
+index.close()
+```
+
+### MembrainMmapIndex (Read-only)
+
+```python
+from membrain import MembrainMmapIndex
+
+index = MembrainMmapIndex(path="/path/to/index.bin")
+results = index.search(query_embedding, k=10)
+index.close()
+```
+
+### MembrainFlatIndex
+
+```python
+from membrain import MembrainFlatIndex
+
+index = MembrainFlatIndex(dimension=1536)
+# Or with config:
+index = MembrainFlatIndex(config={"dimension": 1536, "distance_metric": "Euclidean"})
+
+index.add("id-1", embedding)
+results = index.search(query_embedding, k=5)
+index.close()
+```
+
+### MembrainIvfIndex
+
+Requires training data for initial build:
+
+```python
+from membrain import MembrainIvfIndex
+
+index = MembrainIvfIndex.build(
+    dimension=768, ids=ids, vectors=vectors,
+    config={"num_cells": 32, "nprobe": 4},
+)
+
+results = index.search(query_embedding, k=10)
+index.add("new-id", new_embedding)  # Incremental add after build
+index.close()
+```
+
+### MembrainLshIndex
+
+```python
+from membrain import MembrainLshIndex
+
+index = MembrainLshIndex(dimension=1536)
+# Or with config:
+index = MembrainLshIndex(config={"dimension": 1536, "num_hyperplanes": 24, "num_tables": 12})
+
+index.add("id-1", embedding)
+results = index.search(query_embedding, k=10)
+index.close()
+```
+
+### MembrainVamanaIndex
+
+Requires training data for initial build:
+
+```python
+from membrain import MembrainVamanaIndex
+
+index = MembrainVamanaIndex.build(
+    dimension=768, ids=ids, vectors=vectors,
+    config={"max_degree": 32, "alpha": 1.2, "search_list_size": 64},
+)
+
+results = index.search(query_embedding, k=10)
+index.close()
+```
+
+### MembrainShardedIndex
+
+```python
+from membrain import MembrainShardedIndex
+
+index = MembrainShardedIndex.build(
+    dimension=768, ids=ids, vectors=vectors,
+    config={"num_shards": 16, "nprobe": 3},
+)
+
+results = index.search(query_vector, k=10)
+
+data = index.save()
+restored = MembrainShardedIndex.load(data)
+index.close()
+```
+
+### Common Index Methods
+
+All indices share these methods:
+
+| Method | Description |
+|---|---|
+| `add(id, vector)` | Add a vector with a UUID string ID |
+| `remove(id)` | Remove a vector by ID |
+| `search(vector, k)` | Search for k nearest neighbors |
+| `search_with_filter(vector, k, allowed_ids)` | Search with an ID allowlist |
+| `batch_search(queries, k)` | Run multiple queries in parallel |
+| `metrics()` | Get performance counters (searches, inserts, cache hits, etc.) |
+| `len(index)` | Get vector count |
+| `close()` | Release FFI resources |
+
+---
+
+## Concurrent Indices
+
+Thread-safe variants that allow simultaneous reads and writes from multiple threads. All operations take `&self` semantics -- no external locking needed.
+
+### Available Types
+
+| Class | Construction | Best for |
+|---|---|---|
+| `ConcurrentFlatIndex` | `ConcurrentFlatIndex(dimension)` | Exact search, small datasets |
+| `ConcurrentHnswIndex` | `ConcurrentHnswIndex(dimension)` | Graph-based ANN, general purpose |
+| `ConcurrentIvfIndex` | `ConcurrentIvfIndex.build(ids, vectors, dimension)` | Large datasets, tunable recall |
+| `ConcurrentLshIndex` | `ConcurrentLshIndex(dimension)` | High-dimensional hashing |
+| `ConcurrentVamanaIndex` | `ConcurrentVamanaIndex.build(ids, vectors, dimension)` | DiskANN-style graph |
+
+### Usage
+
+```python
+import threading
+import uuid
+from membrain import ConcurrentHnswIndex
+
+index = ConcurrentHnswIndex(dimension=1536)
+
+def worker(thread_id):
+    vec_id = str(uuid.uuid4())
+    embedding = [float(thread_id) / 1536.0] * 1536
+    index.add(vec_id, embedding)
+
+threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+results = index.search([0.5] * 1536, k=10)
+print(f"Found {len(results)} results from {len(index)} vectors")
+index.close()
+```
+
+### Handle Cloning
+
+All clones share the same underlying data:
+
+```python
+clone = index.clone()
+clone.add("v2", [0.2] * 128)
+assert len(index) == len(clone)  # Both handles see all vectors
+clone.close()
+```
+
+### Optional Config
+
+Incremental indices accept an optional config dict:
+
+```python
+index = ConcurrentHnswIndex(dimension=1536, config={
+    "m": 16,
+    "ef_construction": 200,
+    "ef_search": 100,
+    "distance_metric": "Cosine",
+})
+```
+
+---
+
+## MembrainDistributedIndex
+
+Distributed vector index using consistent hashing with SWIM gossip protocol.
+
+```python
+from membrain import MembrainDistributedIndex
+
+node = MembrainDistributedIndex.connect(
+    dimension=128,
+    config={
+        "listen_address": "127.0.0.1:9400",
+        "replication_factor": 3,
+    },
+)
+
+node.add(str(uuid.uuid4()), embedding)
+results = node.search(query_vector, k=10)
+
+info = node.cluster_info()
+print(f"Nodes: {info.node_count}")
+
+node.close()
+```
+
+---
+
+## MultiTenantIndex
+
+Namespace-based multi-tenancy for isolated vector spaces within a single index instance.
+
+```python
+from membrain import MultiTenantIndex
+
+index = MultiTenantIndex(dimension=1536, index_type="hnsw")
+
+index.create_tenant("user-alice")
+index.create_tenant("user-bob")
+
+index.add("user-alice", str(uuid.uuid4()), embedding)
+results = index.search("user-alice", query_embedding, k=10)
+
+tenants = index.list_tenants()
+index.delete_tenant("user-bob")
+
+index.close()
+```
+
+Supported index types: `"flat"`, `"hnsw"`, `"lsh"`.
+
+---
+
+## Rerankers
+
+Provider-backed rerankers for improving search quality by re-scoring results with a cross-encoder or language model.
+
+### Available Rerankers
+
+| Class | Provider |
+|---|---|
+| `CohereReranker` | Cohere Rerank API |
+| `JinaReranker` | Jina Reranker API |
+| `OpenAIReranker` | OpenAI API |
+| `AnthropicReranker` | Anthropic API |
+
+### Usage
+
+```python
+from membrain import CohereReranker
+
+reranker = CohereReranker(api_key="your-key", model="rerank-v3.5")
+
+results = reranker.rerank(
+    query="What is Python?",
+    documents=["Python is a programming language", "Java is compiled"],
+    top_k=5,
+)
+
+for r in results.results:
+    print(f"Score: {r.score:.4f}  Doc: {r.document}")
+```
+
+All rerankers implement the `BaseReranker` interface.
+
+---
+
+## Vector Backends
+
+Pluggable vector backends for external vector databases.
+
+| Class | Backend |
+|---|---|
+| `SimpleInMemoryBackend` | In-memory (default) |
+| `QdrantBackend` | Qdrant |
+| `ChromaBackend` | ChromaDB |
+| `FAISSBackend` | FAISS |
+| `PineconeBackend` | Pinecone |
+| `MilvusBackend` | Milvus |
+| `LanceDBBackend` | LanceDB |
+
+All backends implement the `VectorBackend` interface. See the [Vector Databases](/integrations/vector-databases) page for configuration details.
+
+---
+
+## Data Types
+
+### StoreResult
+
+```python
+@dataclass
+class StoreResult:
+    success: bool
+    id: str | None
+    merged_with: str | None
+    rejection_reason: str | None
+    duration_ms: int
+```
+
+### SearchResults
+
+```python
+@dataclass
+class SearchResults:
+    memories: list[MemoryEntry]
+    was_gated: bool
+    duration_ms: int
+```
+
+### MemoryEntry
+
+```python
+@dataclass
+class MemoryEntry:
+    id: str
+    content: str
+    score: float
+    memory_type: str
+```
+
+### IndexSearchResult
+
+```python
+@dataclass
+class IndexSearchResult:
+    id: str
+    score: float
+    distance: float
+```
+
+### IndexMetrics
+
+```python
+@dataclass
+class IndexMetrics:
+    searches: int
+    inserts: int
+    deletes: int
+    compactions: int
+    cache_hits: int
+    cache_misses: int
+    distance_computations: int
+```
+
+### GraphQueryResult
+
+```python
+@dataclass
+class GraphQueryResult:
+    nodes: list[GraphScoredNode]
+    traversed_edges: list[GraphTraversalStep]
+    hops_performed: int
+    nodes_visited: int
+```
+
+### CaseEntry
+
+```python
+@dataclass
+class CaseEntry:
+    id: str
+    problem: str
+    plan: str
+    outcome: str
+    reward: float
+    score: float
+```
+
+### CaseSearchResults
+
+```python
+@dataclass
+class CaseSearchResults:
+    positive_cases: list[CaseEntry]
+    negative_cases: list[CaseEntry]
+    duration_ms: int
+```
+
+---
+
+## Error Handling
+
+```python
+from membrain import MembrainClient, MembrainError
+
+try:
+    client = MembrainClient()
+    client.store_fact("test")
+except MembrainError as e:
+    print(f"Error: {e}, code: {e.code}")
+```
+
+## Environment Variables
+
+<ResponseField name="MEMBRAIN_LIB_PATH" type="string">
+  Path to shared library (overrides auto-detection)
+</ResponseField>
+
+## Thread Safety
+
+<Warning>
+  `MembrainClient` and `MembrainGraph` are **not** thread-safe. Create separate instances per thread or use locks. For thread-safe vector operations, use the `Concurrent*Index` classes.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="JavaScript API" icon="js" href="/api-reference/javascript-api">
+    JavaScript/TypeScript API
+  </Card>
+  <Card title="Rust API" icon="gear" href="/api-reference/rust-api">
+    Rust API reference
+  </Card>
+  <Card title="MemscaleDB" icon="bolt" href="/memscaledb/overview">
+    Vector database deep dive
+  </Card>
+  <Card title="Cookbooks" icon="book-open" href="/cookbooks/basic-usage">
+    Practical examples and patterns
+  </Card>
+</CardGroup>

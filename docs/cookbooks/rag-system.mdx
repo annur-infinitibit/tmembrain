@@ -1,0 +1,500 @@
+---
+title: RAG System
+description: Build a Retrieval-Augmented Generation system
+icon: database
+---
+
+# Build a RAG System with Membrain
+
+Create a production-ready RAG (Retrieval-Augmented Generation) system that grounds LLM responses in your knowledge base.
+
+## What You'll Build
+
+A RAG system that:
+- Ingests and indexes documents
+- Retrieves relevant context for queries
+- Generates grounded, accurate responses
+- Tracks source attribution
+
+## Prerequisites
+
+<CodeGroup>
+```bash Python
+pip install membrain openai sentence-transformers
+```
+
+```bash JavaScript
+npm install membrain openai @xenova/transformers
+```
+</CodeGroup>
+
+## Step 1: Document Ingestion
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+from sentence_transformers import SentenceTransformer
+import os
+
+# Initialize
+memory = MembrainClient()
+embedder = SentenceTransformer('all-MiniLM-L6-v2')
+
+def ingest_document(document_text, source="unknown"):
+    """Split and store document chunks"""
+
+    # Simple chunking (in production, use better chunking)
+    chunks = [document_text[i:i+500] for i in range(0, len(document_text), 400)]
+
+    for idx, chunk in enumerate(chunks):
+        # Store with source attribution
+        memory.store_fact(
+            f"[Source: {source}, Chunk {idx}] {chunk}",
+            confidence=0.9
+        )
+
+    print(f"Ingested {len(chunks)} chunks from {source}")
+
+# Ingest sample documents
+docs = {
+    "rust_docs.txt": """
+    Rust is a systems programming language that focuses on safety, speed, and concurrency.
+    The ownership system ensures memory safety without garbage collection.
+    Rust prevents data races at compile time through its borrow checker.
+    """,
+    "python_docs.txt": """
+    Python is a high-level programming language known for its simplicity.
+    Python supports multiple programming paradigms including procedural, object-oriented, and functional.
+    The language has a rich ecosystem for data science and machine learning.
+    """
+}
+
+for source, content in docs.items():
+    ingest_document(content, source)
+
+memory.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+import { pipeline } from '@xenova/transformers';
+
+// Initialize
+const memory = new MembrainClient();
+const embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+
+function ingestDocument(documentText, source = 'unknown') {
+    // Simple chunking (in production, use better chunking)
+    const chunks = [];
+    for (let i = 0; i < documentText.length; i += 400) {
+        chunks.push(documentText.slice(i, i + 500));
+    }
+
+    chunks.forEach((chunk, idx) => {
+        // Store with source attribution
+        memory.storeFact(
+            `[Source: ${source}, Chunk ${idx}] ${chunk}`,
+            0.9
+        );
+    });
+
+    console.log(`Ingested ${chunks.length} chunks from ${source}`);
+}
+
+// Ingest sample documents
+const docs = {
+    'rust_docs.txt': `
+    Rust is a systems programming language that focuses on safety, speed, and concurrency.
+    The ownership system ensures memory safety without garbage collection.
+    Rust prevents data races at compile time through its borrow checker.
+    `,
+    'python_docs.txt': `
+    Python is a high-level programming language known for its simplicity.
+    Python supports multiple programming paradigms including procedural, object-oriented, and functional.
+    The language has a rich ecosystem for data science and machine learning.
+    `
+};
+
+for (const [source, content] of Object.entries(docs)) {
+    ingestDocument(content, source);
+}
+
+memory.close();
+```
+</CodeGroup>
+
+## Step 2: Retrieval
+
+<CodeGroup>
+```python Python
+from openai import OpenAI
+
+llm = OpenAI()
+
+def retrieve_and_generate(query, top_k=5):
+    """Retrieve relevant chunks and generate answer"""
+
+    # Retrieve relevant context
+    results = memory.search(query, limit=top_k, memory_type="fact")
+
+    if not results.memories:
+        return "I don't have information about that in my knowledge base."
+
+    # Build context with sources
+    context_parts = []
+    sources = set()
+
+    for mem in results.memories:
+        context_parts.append(mem.content)
+        # Extract source from content
+        if "[Source:" in mem.content:
+            source = mem.content.split("[Source:")[1].split("]")[0].strip()
+            sources.add(source)
+
+    context = "\n\n".join(context_parts)
+
+    # Generate grounded response
+    response = llm.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {
+                "role": "system",
+                "content": f"""Answer the question using ONLY the provided context.
+If the context doesn't contain the answer, say so.
+
+Context:
+{context}"""
+            },
+            {"role": "user", "content": query}
+        ]
+    )
+
+    answer = response.choices[0].message.content
+
+    # Add source attribution
+    if sources:
+        answer += f"\n\nSources: {', '.join(sources)}"
+
+    return answer
+
+# Example queries
+print(retrieve_and_generate("How does Rust ensure memory safety?"))
+print(retrieve_and_generate("What is Python used for?"))
+print(retrieve_and_generate("Explain quantum computing"))  # Not in knowledge base
+```
+
+```javascript JavaScript
+import { ChatOpenAI } from 'langchain/chat_models/openai';
+
+const llm = new ChatOpenAI({ modelName: 'gpt-4' });
+
+async function retrieveAndGenerate(query, topK = 5) {
+    // Retrieve relevant context
+    const results = memory.search(query, topK, 'fact');
+
+    if (results.memories.length === 0) {
+        return "I don't have information about that in my knowledge base.";
+    }
+
+    // Build context with sources
+    const contextParts = [];
+    const sources = new Set();
+
+    for (const mem of results.memories) {
+        contextParts.push(mem.content);
+        // Extract source from content
+        if (mem.content.includes('[Source:')) {
+            const source = mem.content.split('[Source:')[1].split(']')[0].trim();
+            sources.add(source);
+        }
+    }
+
+    const context = contextParts.join('\n\n');
+
+    // Generate grounded response
+    const response = await llm.call([
+        {
+            role: 'system',
+            content: `Answer the question using ONLY the provided context.
+If the context doesn't contain the answer, say so.
+
+Context:
+${context}`
+        },
+        { role: 'user', content: query }
+    ]);
+
+    let answer = response;
+
+    // Add source attribution
+    if (sources.size > 0) {
+        answer += `\n\nSources: ${Array.from(sources).join(', ')}`;
+    }
+
+    return answer;
+}
+
+// Example queries
+console.log(await retrieveAndGenerate('How does Rust ensure memory safety?'));
+console.log(await retrieveAndGenerate('What is Python used for?'));
+```
+</CodeGroup>
+
+## Step 3: Confidence-Weighted Retrieval
+
+<CodeGroup>
+```python Python
+def smart_retrieve(query, top_k=5, min_confidence=0.8):
+    """Retrieve high-confidence chunks only"""
+
+    results = memory.search(query, limit=top_k * 2)  # Get more, filter later
+
+    # Filter by confidence
+    high_confidence = [
+        m for m in results.memories
+        if m.confidence >= min_confidence
+    ][:top_k]
+
+    if not high_confidence:
+        return None, "Low confidence in available information"
+
+    # Sort by relevance score
+    sorted_results = sorted(high_confidence, key=lambda m: m.score, reverse=True)
+
+    context = "\n\n".join([m.content for m in sorted_results])
+
+    # Calculate average confidence
+    avg_confidence = sum(m.confidence for m in sorted_results) / len(sorted_results)
+
+    return context, avg_confidence
+
+# Usage
+context, confidence = smart_retrieve("Rust memory management", min_confidence=0.85)
+if context:
+    print(f"Retrieved context (confidence: {confidence:.2f})")
+    # Generate response...
+```
+</CodeGroup>
+
+## Step 4: Production RAG System
+
+<CodeGroup>
+```python Python
+class ProductionRAG:
+    def __init__(self):
+        self.memory = MembrainClient()
+        self.llm = OpenAI()
+        self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
+
+    def ingest_documents(self, documents):
+        """Ingest multiple documents"""
+        for doc_id, content in documents.items():
+            self._chunk_and_store(content, doc_id)
+
+    def _chunk_and_store(self, text, source, chunk_size=500, overlap=100):
+        """Smart chunking with overlap"""
+        chunks = []
+        start = 0
+
+        while start < len(text):
+            end = start + chunk_size
+            chunk = text[start:end]
+
+            # Try to break at sentence boundary
+            if end < len(text):
+                last_period = chunk.rfind('.')
+                if last_period > chunk_size * 0.7:  # At least 70% of chunk
+                    chunk = chunk[:last_period + 1]
+                    end = start + last_period + 1
+
+            chunks.append(chunk.strip())
+            start = end - overlap
+
+        # Store chunks
+        for idx, chunk in enumerate(chunks):
+            self.memory.store_fact(
+                f"[Source: {source}, Chunk {idx}/{len(chunks)}] {chunk}",
+                confidence=0.9
+            )
+
+        return len(chunks)
+
+    def query(self, question, top_k=5, min_confidence=0.8):
+        """Query with answer and citations"""
+
+        # Retrieve relevant chunks
+        results = self.memory.search(question, limit=top_k, memory_type="fact")
+
+        if not results.memories:
+            return {
+                "answer": "I don't have information about that.",
+                "confidence": 0.0,
+                "sources": []
+            }
+
+        # Filter by confidence
+        relevant = [m for m in results.memories if m.confidence >= min_confidence]
+
+        if not relevant:
+            return {
+                "answer": "The available information has low confidence.",
+                "confidence": 0.0,
+                "sources": []
+            }
+
+        # Build context
+        context = "\n\n".join([m.content for m in relevant])
+
+        # Extract sources
+        sources = []
+        for mem in relevant:
+            if "[Source:" in mem.content:
+                source_info = mem.content.split("[Source:")[1].split("]")[0]
+                if source_info not in sources:
+                    sources.append(source_info)
+
+        # Generate answer
+        response = self.llm.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"""You are a helpful assistant that answers questions based on provided context.
+
+IMPORTANT:
+- Only use information from the context
+- If the context doesn't answer the question, say so
+- Be specific and cite relevant parts
+
+Context:
+{context}"""
+                },
+                {"role": "user", "content": question}
+            ]
+        )
+
+        answer = response.choices[0].message.content
+
+        # Calculate confidence
+        avg_confidence = sum(m.confidence for m in relevant) / len(relevant)
+        avg_score = sum(m.score for m in relevant) / len(relevant)
+        overall_confidence = (avg_confidence + avg_score) / 2
+
+        return {
+            "answer": answer,
+            "confidence": overall_confidence,
+            "sources": sources,
+            "chunks_used": len(relevant)
+        }
+
+    def close(self):
+        self.memory.close()
+
+# Usage
+rag = ProductionRAG()
+
+# Ingest knowledge base
+documents = {
+    "rust_guide.md": open("rust_guide.md").read(),
+    "python_tutorial.md": open("python_tutorial.md").read(),
+    # ... more documents
+}
+rag.ingest_documents(documents)
+
+# Query
+result = rag.query("How does Rust prevent memory leaks?")
+print(f"Answer: {result['answer']}")
+print(f"Confidence: {result['confidence']:.2f}")
+print(f"Sources: {', '.join(result['sources'])}")
+print(f"Used {result['chunks_used']} chunks")
+
+rag.close()
+```
+</CodeGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Smart Chunking">
+    - Break at sentence/paragraph boundaries
+    - Use overlap between chunks (10-20%)
+    - Keep chunks 300-500 tokens
+    - Store metadata (source, position, timestamp)
+  </Accordion>
+
+  <Accordion title="Quality Filtering">
+    - Set minimum confidence thresholds
+    - Filter irrelevant results
+    - Rank by relevance score
+    - Limit context size to avoid overwhelming LLM
+  </Accordion>
+
+  <Accordion title="Source Attribution">
+    - Always track document sources
+    - Include chunk positions
+    - Provide citations in responses
+    - Enable users to verify information
+  </Accordion>
+
+  <Accordion title="Confidence Tracking">
+    - Assign confidence based on source quality
+    - Update confidence as information is verified
+    - Show confidence to users
+    - Handle low-confidence gracefully
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Features
+
+### Hybrid Search
+Combine semantic and keyword search:
+
+```python
+def hybrid_search(query, top_k=5):
+    # Semantic search
+    semantic_results = memory.search(query, limit=top_k)
+
+    # Keyword filter (post-process)
+    keywords = query.lower().split()
+    filtered = [
+        m for m in semantic_results.memories
+        if any(kw in m.content.lower() for kw in keywords)
+    ]
+
+    return filtered or semantic_results.memories[:top_k]
+```
+
+### Re-ranking
+Improve result quality with re-ranking:
+
+```python
+def rerank_results(query, candidates):
+    """Use LLM to rerank results"""
+    prompt = f"Rank these passages by relevance to: {query}\n\n"
+    for i, cand in enumerate(candidates):
+        prompt += f"{i+1}. {cand.content[:200]}...\n\n"
+    prompt += "Output only numbers in order (most relevant first): "
+
+    # Get LLM ranking
+    response = llm.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    # Parse and reorder
+    # ... implementation
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Chatbot" icon="comments" href="/cookbooks/chatbot-with-memory">
+    Add conversational interface
+  </Card>
+  <Card title="Multi-Agent" icon="users" href="/cookbooks/multi-agent">
+    Coordinate multiple RAG agents
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Use different vector backends
+  </Card>
+</CardGroup>

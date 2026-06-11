@@ -1,0 +1,231 @@
+---
+title: MemscaleDB Distributed
+description: Scale MemscaleDB across multiple nodes with consistent hashing, gossip-based membership, and scatter-gather search
+icon: network-wired
+---
+
+# MemscaleDB Distributed
+
+MemscaleDB's distributed mode spreads vectors across multiple nodes using consistent hashing. Each node runs a local HNSW index. A SWIM-based gossip protocol handles node discovery and failure detection. Searches use scatter-gather: fan out to all alive nodes, search locally, merge results at the coordinator.
+
+<CardGroup cols={2}>
+  <Card title="Horizontal Scaling" icon="arrows-left-right" color="#10b981">
+    Add nodes to increase capacity. Vectors are automatically distributed via consistent hashing.
+  </Card>
+  <Card title="Fault Tolerant" icon="shield-check">
+    Configurable replication factor and write quorum. SWIM gossip detects failures automatically.
+  </Card>
+  <Card title="No External Dependencies" icon="check-circle">
+    Built-in gossip protocol and TCP transport. No ZooKeeper, etcd, or external coordination service.
+  </Card>
+  <Card title="Full MemscaleDB Features" icon="microchip">
+    Each node runs a full HnswIndex with SIMD, caching, and filtering.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+1. **Node startup**: Each node binds a TCP listener and creates a local `HnswIndex`.
+2. **Cluster join**: New nodes contact seed nodes to discover the membership list via gossip.
+3. **Consistent hashing**: A hash ring with virtual nodes maps each vector ID to N replica nodes.
+4. **Write replication**: Writes are sent to all replica nodes in parallel, succeeding when a write quorum acknowledges.
+5. **Scatter-gather search**: Queries fan out to all alive nodes. Each node searches its local index. Results are merged using a min-heap with deduplication.
+6. **Failure detection**: SWIM protocol pings random members. Missed probes trigger indirect probes, then suspicion, then dead declaration.
+
+## Usage
+
+<CodeGroup>
+```python Python
+import uuid
+from membrain import MembrainDistributedIndex
+
+# Start a node (first node in the cluster)
+node1 = MembrainDistributedIndex.connect(
+    dimension=128,
+    config={
+        "listen_address": "127.0.0.1:9400",
+        "replication_factor": 3,
+    },
+)
+
+# Add vectors -- IDs must be UUID strings
+vec_id = str(uuid.uuid4())
+node1.add(vec_id, [0.1, 0.2, ...])
+
+# Search across the cluster
+results = node1.search(query_vector, k=10)
+for result in results:
+    print(f"{result.id}  distance={result.distance:.4f}")
+
+# Cluster info
+info = node1.cluster_info()
+print(f"Nodes: {info.node_count}, Replication: {info.replication_factor}")
+
+node1.close()
+```
+
+```javascript JavaScript
+import { MembrainDistributedIndex } from "membrain";
+
+// Start a node
+const node1 = MembrainDistributedIndex.connect({
+  dimension: 128,
+  listen_address: "127.0.0.1:9400",
+  replication_factor: 3,
+});
+
+// Add vectors
+const vecId = crypto.randomUUID();
+node1.add(vecId, [0.1, 0.2, ...]);
+
+// Search across the cluster
+const results = node1.search(queryVector, 10);
+for (const r of results) {
+  console.log(`${r.id}  distance=${r.distance.toFixed(4)}`);
+}
+
+// Cluster info
+const info = node1.clusterInfo();
+console.log(`Nodes: ${info.node_count}, Replication: ${info.replication_factor}`);
+
+node1.close();
+```
+</CodeGroup>
+
+## Configuration
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `dimension` | `int` | **required** | Vector dimension (must match your embeddings) |
+| `listen_address` | `string` | `127.0.0.1:9400` | Address this node listens on for cluster communication |
+| `seed_nodes` | `string[]` | `[]` | Addresses of existing cluster nodes to join |
+| `replication_factor` | `int` | `3` | Number of replicas per vector (including primary) |
+| `virtual_nodes_per_node` | `int` | `128` | Virtual nodes per physical node on the hash ring |
+| `read_quorum` | `int` | `1` | Minimum replicas for a successful read |
+| `rpc_timeout` | `int` | `5000` | RPC timeout in milliseconds |
+| `gossip_interval` | `int` | `1000` | Gossip protocol round interval in milliseconds |
+| `suspicion_timeout` | `int` | `10000` | Time before a suspect node is declared dead (ms) |
+| `max_connections_per_peer` | `int` | `8` | Maximum TCP connections per peer node |
+| `local_hnsw_config` | `object` | default | Per-node HNSW configuration (m, ef_construction, ef_search, distance_metric) |
+
+## Operations
+
+### Adding and Removing Vectors
+
+Vectors are routed to replica nodes based on consistent hashing. Writes succeed when the write quorum (majority of replicas) acknowledges.
+
+<CodeGroup>
+```python Python
+new_id = str(uuid.uuid4())
+node.add(new_id, [0.1, 0.2, ...])
+node.remove(vec_id)
+```
+
+```javascript JavaScript
+const newId = crypto.randomUUID();
+node.add(newId, [0.1, 0.2, ...]);
+node.remove(vecId);
+```
+</CodeGroup>
+
+### Search
+
+Queries are scattered to all alive nodes. Each node searches its local index and returns top-k results. The coordinator merges results into a single ranked list.
+
+<CodeGroup>
+```python Python
+results = node.search(query_vector, k=10)
+```
+
+```javascript JavaScript
+const results = node.search(queryVector, 10);
+```
+</CodeGroup>
+
+### Filtered Search
+
+Search with an ID allowlist. The allowed IDs are sent to each node for server-side filtering.
+
+<CodeGroup>
+```python Python
+results = node.search_with_filter(
+    query_vector,
+    k=10,
+    allowed_ids=[vec_id_1, vec_id_3, vec_id_5],  # UUIDs of previously added vectors
+)
+```
+
+```javascript JavaScript
+const results = node.searchWithFilter(
+  queryVector,
+  10,
+  [vecId1, vecId3, vecId5],  // UUIDs of previously added vectors
+);
+```
+</CodeGroup>
+
+### Batch Search
+
+Run multiple queries across the cluster.
+
+<CodeGroup>
+```python Python
+queries = [query1, query2, query3]
+batch_results = node.batch_search(queries, k=10)
+```
+
+```javascript JavaScript
+const batchResults = node.batchSearch([query1, query2, query3], 10);
+```
+</CodeGroup>
+
+### Cluster Info
+
+<CodeGroup>
+```python Python
+info = node.cluster_info()
+print(f"Nodes: {info.node_count}")
+print(f"Local: {info.local_node.id} at {info.local_node.address}")
+print(f"Replication factor: {info.replication_factor}")
+
+metrics = node.metrics()
+print(f"Searches: {metrics.searches}, Inserts: {metrics.inserts}")
+```
+
+```javascript JavaScript
+const info = node.clusterInfo();
+console.log(`Nodes: ${info.node_count}`);
+console.log(`Local: ${info.local_node.id} at ${info.local_node.address}`);
+
+const metrics = node.metrics();
+console.log(`Searches: ${metrics.searches}, Inserts: ${metrics.inserts}`);
+```
+</CodeGroup>
+
+## When to Use MemscaleDB Distributed
+
+| Scenario | MemscaleDB Distributed? |
+|---|---|
+| Dataset exceeds single-machine memory | Yes -- distribute across multiple nodes |
+| Need fault tolerance and replication | Yes -- configurable replication factor and write quorum |
+| Multi-process or networked deployment | Yes -- native TCP transport with gossip membership |
+| Single-process, moderate dataset | No -- use the standard [MemscaleDB index](/memscaledb/overview) |
+| Single-process, large dataset | No -- use [MemscaleDB Sharded](/memscaledb/sharded) |
+| Need advanced features (metadata filtering, ACID) | No -- use [Qdrant](/integrations/qdrant) or [Milvus](/integrations/milvus) |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MemscaleDB" icon="bolt" href="/memscaledb/overview">
+    Standard single-node MemscaleDB index for smaller datasets
+  </Card>
+  <Card title="MemscaleDB Sharded" icon="cubes" href="/memscaledb/sharded">
+    Single-process sharded index with centroid-based routing
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Comparison of all supported vector backends
+  </Card>
+  <Card title="Advanced Patterns" icon="wand-magic-sparkles" href="/cookbooks/advanced-patterns">
+    Connection pooling, versioned memory, monitoring
+  </Card>
+</CardGroup>

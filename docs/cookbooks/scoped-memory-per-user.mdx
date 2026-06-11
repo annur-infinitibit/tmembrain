@@ -1,0 +1,85 @@
+---
+title: Scoped Memory per User
+description: A chatbot that gives every user their own private memory on a shared DB
+icon: user-shield
+---
+
+# Scoped Memory per User
+
+A single Membrain DB can serve many users without any user seeing another's
+memories — use `scope` to tie writes and reads to a `user_id`. Add a
+`thread_id` sub-scope and each conversation gets its own slice too.
+
+## Minimal example
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+from openai import OpenAI
+
+DB_PATH = "./chatbot_memory"
+INDEXED = ["user_id", "thread_id"]
+llm = OpenAI()
+
+def chat(user_id: str, thread_id: str, message: str) -> str:
+    client = MembrainClient(
+        config={"storage": {"backend": "memscaledb", "path": DB_PATH,
+                            "indexed_metadata_keys": INDEXED}},
+        scope={"user_id": user_id, "thread_id": thread_id},
+    )
+    try:
+        context = client.search(message, limit=5)
+        prior = "\n".join(m.content for m in context.memories)
+        prompt = f"Prior context:\n{prior}\n\nUser: {message}\nAssistant:"
+        reply = llm.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+        ).choices[0].message.content
+        client.store_observation(f"user said: {message}")
+        client.store_observation(f"assistant said: {reply}")
+        return reply
+    finally:
+        client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from "membrain";
+import OpenAI from "openai";
+
+const DB_PATH = "./chatbot_memory";
+const INDEXED = ["user_id", "thread_id"];
+const llm = new OpenAI();
+
+export async function chat(userId, threadId, message) {
+  const client = new MembrainClient(
+    { storage: { backend: "memscaledb", path: DB_PATH,
+                 indexed_metadata_keys: INDEXED } },
+    { scope: { user_id: userId, thread_id: threadId } },
+  );
+  try {
+    const context = client.search(message, 5);
+    const prior = context.memories.map((m) => m.content).join("\n");
+    const reply = (await llm.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content:
+        `Prior context:\n${prior}\n\nUser: ${message}\nAssistant:` }],
+    })).choices[0].message.content;
+    client.storeObservation(`user said: ${message}`);
+    client.storeObservation(`assistant said: ${reply}`);
+    return reply;
+  } finally {
+    client.close();
+  }
+}
+```
+</CodeGroup>
+
+## Verifying isolation
+
+Two users sharing the same DB should never cross paths. The storage layer
+enforces this via the pre-filter on indexed keys; the Membrain client
+enforces it via auto-injected scope on writes and auto-applied scope on
+reads. Every request gets both guarantees.
+
+See [Metadata Scoping](/features/metadata-scoping) for more on scope
+semantics and indexed-key configuration.

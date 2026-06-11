@@ -1,0 +1,535 @@
+---
+title: CBR API Reference
+description: Full API reference for case-based reasoning
+icon: code
+---
+
+# CBR API Reference
+
+Complete API reference for Membrain's case-based reasoning module.
+
+## Client Methods
+
+### store_case
+
+Store an experience case for case-based reasoning.
+
+<ParamField body="problem" type="string" required>
+  The problem or query that was addressed.
+</ParamField>
+
+<ParamField body="plan" type="string" required>
+  The plan that was executed.
+</ParamField>
+
+<ParamField body="outcome" type="string" required>
+  The observed outcome.
+</ParamField>
+
+<ParamField body="reward" type="float" default="1.0">
+  Reward signal from 0.0 (failure) to 1.0 (success).
+</ParamField>
+
+<CodeGroup>
+```python Python
+result = client.store_case(
+    problem="Fix slow API endpoint",
+    plan="Add database index on user_id column",
+    outcome="Response time reduced from 2s to 50ms",
+    reward=1.0,
+)
+print(result.id)  # Memory ID
+```
+
+```javascript JavaScript
+const result = client.storeCase(
+  "Fix slow API endpoint",
+  "Add database index on user_id column",
+  "Response time reduced from 2s to 50ms",
+  1.0
+);
+```
+</CodeGroup>
+
+### search_cases
+
+Search for similar cases, split into positive and negative results.
+
+<ParamField body="query" type="string" required>
+  The search query text.
+</ParamField>
+
+<ParamField body="limit" type="int" default="5">
+  Maximum number of results to return.
+</ParamField>
+
+<ParamField body="min_reward" type="float | None" default="None">
+  If set, only return cases with reward >= this value.
+</ParamField>
+
+<ParamField body="positive_reward_threshold" type="float" default="0.5">
+  Reward threshold separating positive from negative cases.
+</ParamField>
+
+<CodeGroup>
+```python Python
+results = client.search_cases("slow API", limit=5)
+
+for case in results.positive_cases:
+    print(f"Success: {case.problem} -> {case.plan}")
+
+for case in results.negative_cases:
+    print(f"Avoid: {case.problem} -> {case.plan}")
+```
+
+```javascript JavaScript
+const results = client.searchCases("slow API", 5);
+results.positive_cases.forEach(c =>
+  console.log(`Success: ${c.problem} -> ${c.plan}`)
+);
+```
+</CodeGroup>
+
+### Retrieve and reuse pattern
+
+The canonical CBR loop: search cases, inject successful plans + failures-to-avoid into the LLM prompt, act, then store the new case.
+
+<CodeGroup>
+```python Python
+cases = client.search_cases(user_task, limit=5)
+
+context_lines = []
+for c in cases.positive_cases[:3]:
+    context_lines.append(f"Worked before: {c.plan} -> {c.outcome}")
+for c in cases.negative_cases[:2]:
+    context_lines.append(f"Avoid: {c.plan} -> {c.outcome}")
+
+plan = llm([
+    {"role": "system", "content": "\n".join(context_lines)},
+    {"role": "user", "content": user_task},
+])
+outcome, reward = execute(plan)
+client.store_case(problem=user_task, plan=plan, outcome=outcome, reward=reward)
+```
+
+```javascript JavaScript
+const cases = client.searchCases(userTask, 5);
+
+const contextLines = [
+  ...cases.positive_cases.slice(0, 3).map(c => `Worked before: ${c.plan} -> ${c.outcome}`),
+  ...cases.negative_cases.slice(0, 2).map(c => `Avoid: ${c.plan} -> ${c.outcome}`),
+];
+
+const plan = await llm([
+  { role: "system", content: contextLines.join("\n") },
+  { role: "user", content: userTask },
+]);
+const { outcome, reward } = await execute(plan);
+client.storeCase(userTask, plan, outcome, reward);
+```
+</CodeGroup>
+
+The [`Conversation`](/api-reference/conversation) class automates this loop for chat sessions: it calls `search_cases` before each turn and `store_case` on `end()`.
+
+---
+
+## Retriever Classes
+
+### CaseRetriever (Abstract Base)
+
+Base class for all case retrieval strategies.
+
+<CodeGroup>
+```python Python
+from membrain.cbr import CaseRetriever
+
+class MyRetriever(CaseRetriever):
+    def retrieve(self, query, limit=5, positive_reward_threshold=0.5):
+        # Custom retrieval logic
+        ...
+```
+
+```javascript JavaScript
+import { CaseRetriever } from "membrain";
+
+class MyRetriever extends CaseRetriever {
+  retrieve(query, limit = 5, positiveRewardThreshold = 0.5) {
+    // Custom retrieval logic
+    return { positive_cases: [], negative_cases: [], duration_ms: 0 };
+  }
+}
+```
+</CodeGroup>
+
+### NonParametricRetriever
+
+Embedding-similarity retriever. No training required.
+
+<CodeGroup>
+```python Python
+from membrain.cbr import NonParametricRetriever
+
+retriever = NonParametricRetriever(client)
+cases = retriever.retrieve("my query", limit=5)
+```
+
+```javascript JavaScript
+import { NonParametricRetriever } from "membrain";
+
+const retriever = new NonParametricRetriever(client);
+const cases = retriever.retrieve("my query", 5);
+```
+</CodeGroup>
+
+### ParametricRetriever
+
+Trained neural retriever that re-ranks candidates with a classifier.
+
+<Note>
+`ParametricRetriever` runs a fine-tuned BERT classifier and is Python-only. Use `NonParametricRetriever` from `membrain-node`; export trained models to the Python package when heavier ranking is required.
+</Note>
+
+```python Python
+from membrain.cbr.parametric_retriever import ParametricRetriever
+
+retriever = ParametricRetriever(
+    client=client,
+    checkpoint_path="./checkpoints/best.pt",
+    backbone_model="princeton-nlp/sup-simcse-roberta-base",
+    overfetch_factor=3,  # Fetch 3x candidates for re-ranking
+    max_length=256,
+)
+cases = retriever.retrieve("my query", limit=5)
+```
+
+---
+
+## Prompt Builder
+
+### CasePromptBuilder
+
+Formats retrieved cases into LLM prompt context.
+
+<ParamField body="max_positive_examples" type="int" default="3">
+  Maximum positive cases to include.
+</ParamField>
+
+<ParamField body="max_negative_examples" type="int" default="2">
+  Maximum negative cases to include.
+</ParamField>
+
+<CodeGroup>
+```python Python
+from membrain.cbr import CasePromptBuilder
+
+builder = CasePromptBuilder(
+    max_positive_examples=3,
+    max_negative_examples=2,
+)
+context = builder.build_context(cases)
+```
+
+```javascript JavaScript
+import { CasePromptBuilder } from "membrain";
+
+const builder = new CasePromptBuilder({
+  maxPositiveExamples: 3,
+  maxNegativeExamples: 2,
+});
+const context = builder.buildContext(cases);
+```
+</CodeGroup>
+
+---
+
+## Training Data
+
+### TrainingDataCollector
+
+Accumulates training pairs during agent execution.
+
+<CodeGroup>
+```python Python
+from membrain.cbr import TrainingDataCollector
+
+collector = TrainingDataCollector()
+
+# Record from each execution
+collector.record(
+    query="my problem",
+    retrieved_cases=cases,
+    is_correct=True,
+)
+
+# Flush to disk
+count = collector.flush("training_data.jsonl")
+print(f"Wrote {count} training pairs")
+
+# Load existing data
+pairs = TrainingDataCollector.load("training_data.jsonl")
+```
+
+```javascript JavaScript
+import { TrainingDataCollector } from "membrain";
+
+const collector = new TrainingDataCollector();
+
+// Record from each execution
+collector.record("my problem", cases, true);
+
+// Flush to disk
+const count = await collector.flush("training_data.jsonl");
+console.log(`Wrote ${count} training pairs`);
+
+// Load existing data (same JSONL format as Python)
+const pairs = await TrainingDataCollector.load("training_data.jsonl");
+```
+</CodeGroup>
+
+### TrainingPair
+
+A single training example.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `query` | str | The user's problem |
+| `case_text` | str | The formatted case text |
+| `case_label` | str | "positive" or "negative" |
+| `plan` | str | The plan from the case |
+| `truth_label` | bool | Whether the case led to a correct answer |
+
+---
+
+## Trainer
+
+### RetrieverTrainer
+
+Full training loop for the relevance classifier.
+
+<Note>
+Training relies on PyTorch and HuggingFace Transformers and is Python-only. Collect training data from either package with `TrainingDataCollector`; run `RetrieverTrainer` from `membrain-py` to fine-tune. The JavaScript `ExperienceReplay.retrain()` throws `MembrainError` pointing at this path.
+</Note>
+
+```python Python
+from membrain.cbr.trainer import RetrieverTrainer
+
+trainer = RetrieverTrainer(
+    training_data_path="training_data.jsonl",
+    output_dir="./checkpoints",
+    backbone_model="princeton-nlp/sup-simcse-roberta-base",
+    validation_data_path=None,  # Auto-split if None
+    validation_ratio=0.1,
+    use_plan=True,
+    plan_style="pretty",
+)
+
+result = trainer.train(
+    epochs=3,
+    batch_size=32,
+    learning_rate=2e-5,
+    weight_decay=0.01,
+    warmup_ratio=0.06,
+    max_length=256,
+    gradient_clip=1.0,
+    mixed_precision=False,
+    eval_every_steps=500,
+    save_best=True,
+    seed=42,
+)
+```
+
+### TrainingResult
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `best_checkpoint_path` | str | Path to best checkpoint |
+| `final_checkpoint_path` | str | Path to final checkpoint |
+| `best_metric` | float | Best AUC (or F1) |
+| `final_accuracy` | float | Final validation accuracy |
+| `final_f1` | float | Final validation F1 |
+| `final_auc` | float | Final validation AUC |
+| `epochs_trained` | int | Number of epochs |
+| `total_steps` | int | Total training steps |
+| `training_samples` | int | Number of training samples |
+| `validation_samples` | int | Number of validation samples |
+
+---
+
+## Experience Replay
+
+### ExperienceReplay
+
+Orchestrates the store-retrieve-train cycle.
+
+<CodeGroup>
+```python Python
+from membrain.cbr.experience_replay import ExperienceReplay
+
+replay = ExperienceReplay(
+    client=client,
+    retriever=retriever,
+    training_data_path="training_data.jsonl",
+    positive_reward_threshold=0.5,
+)
+
+# Record an execution
+case_id = replay.record_execution(
+    problem="Fix bug",
+    plan="Check error logs",
+    outcome="Bug identified and fixed",
+    reward=1.0,
+    query="fix bug",
+    retrieved_cases=cases_used,
+    is_correct=True,
+)
+
+# Flush and retrain (Python only)
+result = replay.retrain(output_dir="./checkpoints")
+```
+
+```javascript JavaScript
+import { ExperienceReplay } from "membrain";
+
+const replay = new ExperienceReplay(client, {
+  retriever,
+  trainingDataPath: "training_data.jsonl",
+  positiveRewardThreshold: 0.5,
+});
+
+// Record an execution
+const caseId = replay.recordExecution({
+  problem: "Fix bug",
+  plan: "Check error logs",
+  outcome: "Bug identified and fixed",
+  reward: 1.0,
+  query: "fix bug",
+  retrievedCases: casesUsed,
+  isCorrect: true,
+});
+
+// Flush training data (sharable with Python)
+await replay.flushTrainingData();
+
+// retrain() throws MembrainError — run RetrieverTrainer from membrain-py
+```
+</CodeGroup>
+
+---
+
+## Agent Framework
+
+### MembrainAgent
+
+Full plan-execute-learn agent.
+
+<CodeGroup>
+```python Python
+from membrain.agent import MembrainAgent
+
+agent = MembrainAgent(
+    client=client,
+    llm_callable=call_llm,
+    case_limit=5,
+    max_cycles=3,
+)
+
+# Single query
+output = agent.run("Deploy the service")
+
+# Batch with training data collection
+outputs = agent.run_batch(queries, judge_callable=judge_fn)
+```
+
+```javascript JavaScript
+import { MembrainAgent } from "membrain";
+
+const agent = new MembrainAgent(client, callLlm, {
+  caseLimit: 5,
+  maxCycles: 3,
+});
+
+// Single query
+const output = await agent.run("Deploy the service");
+
+// Batch with training data collection
+const outputs = await agent.runBatch(queries, judgeFn);
+```
+</CodeGroup>
+
+### MembrainPlanner
+
+Plans tasks using case context.
+
+<CodeGroup>
+```python Python
+from membrain.agent import MembrainPlanner
+
+planner = MembrainPlanner(
+    retriever=retriever,
+    prompt_builder=builder,
+    llm_callable=call_llm,
+)
+plan = planner.plan("Deploy the service")
+for step in plan.steps:
+    print(f"{step.id}. {step.description}")
+```
+
+```javascript JavaScript
+import { MembrainPlanner } from "membrain";
+
+const planner = new MembrainPlanner(retriever, builder, callLlm);
+const plan = await planner.plan("Deploy the service");
+for (const step of plan.steps) {
+  console.log(`${step.id}. ${step.description}`);
+}
+```
+</CodeGroup>
+
+### MembrainExecutor
+
+Executes individual task steps with optional tool support.
+
+<CodeGroup>
+```python Python
+from membrain.agent import MembrainExecutor
+
+executor = MembrainExecutor(llm_callable=call_llm)
+executor.register_tool("search_web", search_web_fn)
+
+result = executor.execute(step)
+print(result.output, result.success)
+```
+
+```javascript JavaScript
+import { MembrainExecutor } from "membrain";
+
+const executor = new MembrainExecutor(callLlm);
+executor.registerTool("search_web", searchWebFn);
+
+const result = await executor.execute(step);
+console.log(result.output, result.success);
+```
+</CodeGroup>
+
+---
+
+## Data Types
+
+### CaseEntry
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | str | Memory ID |
+| `problem` | str | The problem description |
+| `plan` | str | The plan that was executed |
+| `outcome` | str | The observed outcome |
+| `reward` | float | Reward signal (0.0-1.0) |
+| `score` | float | Search relevance score |
+
+### CaseSearchResults
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `positive_cases` | list[CaseEntry] | Cases with reward >= threshold |
+| `negative_cases` | list[CaseEntry] | Cases with reward < threshold |
+| `duration_ms` | int | Search duration in milliseconds |

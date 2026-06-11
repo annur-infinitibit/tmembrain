@@ -1,0 +1,128 @@
+---
+title: LlamaIndex
+description: Using Membrain with LlamaIndex for RAG pipelines and agentic workflows
+icon: book
+---
+
+# LlamaIndex
+
+LlamaIndex is built around indices and query engines. Membrain serves as a fast, persistent backing store for the knowledge that LlamaIndex indexes and queries.
+
+## RAG with a Query Engine
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+from llama_index.core import Document, Settings
+from llama_index.core.indices.vector_store import VectorStoreIndex
+from llama_index.llms.openai import OpenAI
+
+# --- Membrain as the source of truth ---
+memory = MembrainClient()
+
+# Seed persistent knowledge
+articles = [
+    "Python is a high-level, general-purpose programming language.",
+    "FastAPI is a modern, fast web framework for building APIs with Python.",
+    "Pydantic provides data validation using Python type annotations.",
+]
+for article in articles:
+    memory.store_fact(article, 0.9)
+
+# --- Build a LlamaIndex index from Membrain results ---
+def build_index_from_memory(topic: str, limit: int = 10):
+    """Pull relevant memories and wrap them as LlamaIndex Documents."""
+    results = memory.search(topic, limit=limit)
+    docs = [
+        Document(text=m.content, metadata={"memory_id": m.id, "score": m.score})
+        for m in results.memories
+    ]
+    Settings.llm = OpenAI(model="gpt-4")
+    return VectorStoreIndex.from_documents(docs)
+
+# --- Query ---
+index = build_index_from_memory("Python web development")
+query_engine = index.as_query_engine()
+
+response = query_engine.query("What frameworks are available for Python APIs?")
+print(response)
+
+# --- Persist new knowledge back to Membrain ---
+memory.store_fact(str(response), 0.8)
+
+memory.close()
+```
+</CodeGroup>
+
+<Note>
+  `build_index_from_memory` is intentionally called per-query here. In a long-running app you can cache the index and rebuild it on a schedule or when new memories are stored.
+</Note>
+
+## Agentic Workflow with Task Tracking
+
+LlamaIndex agents pick which tool to call. Wire Membrain in as three tools — store, recall, and task — and let the agent manage its own memory.
+
+```python
+from membrain import MembrainClient
+from llama_index.core.agent import OpenAIAgent
+from llama_index.core.tools import FunctionTool
+from llama_index.llms.openai import OpenAI
+
+memory = MembrainClient()
+
+# --- Define tools that read/write Membrain ---
+def store_note(note: str) -> str:
+    """Store a note in persistent memory for later retrieval."""
+    memory.store_observation(note)
+    return f"Stored: {note}"
+
+def recall_notes(topic: str) -> str:
+    """Recall notes related to a topic from persistent memory."""
+    results = memory.search(topic, limit=5)
+    if not results.memories:
+        return "No notes found."
+    return "\n".join([f"- {m.content}" for m in results.memories])
+
+def add_task(description: str) -> str:
+    """Add a task to the agent's task list."""
+    memory.store_task(description)
+    return f"Task added: {description}"
+
+store_tool = FunctionTool.from_defaults(fn=store_note)
+recall_tool = FunctionTool.from_defaults(fn=recall_notes)
+task_tool = FunctionTool.from_defaults(fn=add_task)
+
+llm = OpenAI(model="gpt-4")
+agent = OpenAIAgent.from_tools(
+    tools=[store_tool, recall_tool, task_tool],
+    llm=llm,
+    verbose=True,
+)
+
+# The agent decides when to store/recall notes and create tasks
+response = agent.chat("I need to research async patterns in Python and remember what I learn.")
+print(response)
+
+memory.close()
+```
+
+<Tip>
+  LlamaIndex agents can autonomously decide when to call `store_note` or `recall_notes`, giving Membrain a role similar to a human's long-term memory.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="LangChain" icon="links" href="/integrations/langchain">
+    Tool-using agents and prompt chains
+  </Card>
+  <Card title="AutoGen" icon="users" href="/integrations/autogen">
+    Conversation-driven multi-agent systems
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Pluggable vector backends
+  </Card>
+  <Card title="Basic Usage" icon="book" href="/cookbooks/basic-usage">
+    Core memory operations
+  </Card>
+</CardGroup>

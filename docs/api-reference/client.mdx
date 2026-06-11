@@ -1,0 +1,74 @@
+---
+title: Client API
+description: Initialize and configure Membrain clients
+icon: plug
+---
+
+# Client API
+
+Documentation for client initialization and configuration across all languages.
+
+## MembrainClient
+
+### Python
+
+```python
+from membrain import MembrainClient
+
+# Default configuration
+client = MembrainClient()
+
+# Custom configuration
+config = {
+    "embedding_dim": 384,
+    "similarity_threshold": 0.85,
+    "enable_deduplication": True
+}
+client = MembrainClient(config)
+
+# Custom library path
+client = MembrainClient(lib_path="/path/to/libmembrain_ffi.so")
+
+# Close client
+client.close()
+```
+
+### JavaScript
+
+```javascript
+import { MembrainClient } from 'membrain';
+
+// Default configuration
+const client = new MembrainClient();
+
+// Custom configuration
+const config = {
+    embedding_dim: 384,
+    similarity_threshold: 0.85,
+    enable_deduplication: true
+};
+const client = new MembrainClient(config);
+
+// Close client
+client.close();
+```
+
+### Rust
+
+```rust
+use membrain_core::{MembrainClient, Config};
+
+// Default configuration
+let client = MembrainClient::new(None)?;
+
+// Custom configuration
+let config = Config {
+    embedding_dim: 384,
+    similarity_threshold: 0.85,
+    enable_deduplication: true,
+    ..Default::default()
+};
+let client = MembrainClient::new(Some(config))?;
+```
+
+For detailed configuration options, see [Configuration](/advanced/configuration).

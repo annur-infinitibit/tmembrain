@@ -1,0 +1,214 @@
+---
+title: ChromaDB
+description: Python-native persistent vector store designed for LLM applications
+icon: layer-group
+---
+
+# ChromaDB
+
+ChromaDB is the lightest path to a persistent vector store. It is Python-native, needs no external server for local use, and is purpose-built for LLM workflows.
+
+<CardGroup cols={2}>
+  <Card title="Install" icon="package" color="#8b5cf6">
+    `pip install chromadb` — no Docker, no server for local mode.
+  </Card>
+  <Card title="Persistence" icon="hard-drive" color="#10b981">
+    Data written to a local directory survives restarts out of the box.
+  </Card>
+  <Card title="Server mode" icon="server">
+    Supports a client-server mode for shared or multi-process access.
+  </Card>
+  <Card title="Scale" icon="chart-line">
+    Scales comfortably to millions of vectors for typical LLM workloads.
+  </Card>
+</CardGroup>
+
+## Setup
+
+```bash
+pip install chromadb
+```
+
+That's all that's needed for local persistent or in-memory usage. If you want shared access across multiple processes, start ChromaDB in server mode:
+
+```bash
+chroma run --host 0.0.0.0 --port 8000
+```
+
+## Usage
+
+### Persistent (recommended)
+
+Data is written to the directory you specify and reloaded automatically on the next run.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, ChromaBackend
+
+backend = ChromaBackend(
+    path="./chroma_data",          # directory on disk
+    collection_name="membrain",
+)
+
+client = MembrainClient(vector_backend=backend)
+
+client.store_fact("ChromaDB persists data to disk by default", 0.9)
+results = client.search("persistence", limit=3)
+
+for m in results.memories:
+    print(f"{m.content}  (score {m.score:.2f})")
+
+client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient({
+  vector_db: {
+    backend: "chroma",
+    path: "./chroma_data",
+    collection_name: "membrain",
+  },
+});
+
+client.storeFact("ChromaDB persists data to disk by default", 0.9);
+const results = client.search("persistence", 3);
+
+results.memories.forEach(m =>
+  console.log(`${m.content}  (score ${m.score.toFixed(2)})`)
+);
+
+client.close();
+```
+</CodeGroup>
+
+### In-memory
+
+Useful for tests or throwaway scripts. All data is lost when the process exits.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, ChromaBackend
+
+backend = ChromaBackend(
+    path=None,                     # ephemeral
+    collection_name="membrain",
+)
+
+client = MembrainClient(vector_backend=backend)
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient({
+  vector_db: {
+    backend: "chroma",
+    path: null,                    // ephemeral
+    collection_name: "membrain",
+  },
+});
+```
+</CodeGroup>
+
+### Server mode
+
+When multiple processes or services need the same vector store, point at the running ChromaDB server instead of a local path.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, ChromaBackend
+
+backend = ChromaBackend(
+    url="http://localhost:8000",   # ChromaDB server
+    collection_name="membrain",
+)
+
+client = MembrainClient(vector_backend=backend)
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient({
+  vector_db: {
+    backend: "chroma",
+    url: "http://localhost:8000",  // ChromaDB server
+    collection_name: "membrain",
+  },
+});
+```
+</CodeGroup>
+
+<Note>
+  `path` and `url` are mutually exclusive. Set `url` for server mode; set `path` (or `None`) for local mode.
+</Note>
+
+### Direct Backend Usage
+
+You can also use the `ChromaBackend` class directly for lower-level vector operations.
+
+<CodeGroup>
+```python Python
+from membrain import ChromaBackend
+
+backend = ChromaBackend(
+    path="./chroma_db",
+    collection_name="membrain",
+)
+
+# Store a vector
+backend.store("mem-1", [0.1, 0.2, 0.3], {"type": "fact"})
+
+# Search with metadata filter
+results = backend.search([0.1, 0.2, 0.35], 5, {"type": "fact"})
+print(f"Found {len(results)} results")
+
+backend.close()
+```
+
+```javascript JavaScript
+const { ChromaBackend } = require("membrain");
+
+const backend = new ChromaBackend({
+  path: "./chroma_db", // for persistent storage
+  collectionName: "membrain",
+});
+await backend.initialize();
+
+// Store a vector
+await backend.store("mem-1", [0.1, 0.2, 0.3], { type: "fact" });
+
+// Search with metadata filter
+const results = await backend.search([0.1, 0.2, 0.35], 5, { type: "fact" });
+console.log(`Found ${results.length} results`);
+
+await backend.close();
+```
+</CodeGroup>
+
+## Configuration options
+
+| Key | Description | Default |
+|---|---|---|
+| `path` | Local directory for persistent storage. `None` for in-memory. | `None` |
+| `url` | ChromaDB server URL (server mode). | — |
+| `collection_name` | Collection to use or create | `membrain` |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Qdrant" icon="server" href="/integrations/qdrant">
+    Production-scale with hybrid search & sharding
+  </Card>
+  <Card title="FAISS" icon="cpu" href="/integrations/faiss">
+    GPU-accelerated, billions-of-vectors scale
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Comparison, config reference & custom backends
+  </Card>
+  <Card title="Graph Memory" icon="diagram-project" href="/cookbooks/graph-memory">
+    Multi-hop relationship retrieval
+  </Card>
+</CardGroup>

@@ -1,0 +1,119 @@
+---
+title: Concurrent Indices
+description: Thread-safe vector indices for parallel reads and writes
+icon: arrows-split-up-and-left
+---
+
+# Concurrent Indices
+
+Thread-safe variants of every base index. Writes take an exclusive lock; reads are fully parallel. Use these when an index is shared across threads or a thread pool.
+
+| Class | Backed by |
+|---|---|
+| `ConcurrentFlatIndex` | Brute-force |
+| `ConcurrentHnswIndex` | HNSW |
+| `ConcurrentIvfIndex` | IVF |
+| `ConcurrentLshIndex` | LSH |
+| `ConcurrentVamanaIndex` | Vamana / DiskANN |
+
+All five share the same API.
+
+## Quickstart
+
+<CodeGroup>
+```python Python
+from membrain import ConcurrentHnswIndex
+from concurrent.futures import ThreadPoolExecutor
+import uuid
+
+index = ConcurrentHnswIndex(dimension=1536)
+
+def insert(vec):
+    index.add(str(uuid.uuid4()), vec)
+
+with ThreadPoolExecutor(max_workers=8) as pool:
+    pool.map(insert, my_vectors)
+
+results = index.search(query_vec, k=10)
+index.close()
+```
+
+```javascript JavaScript
+import { ConcurrentHnswIndex } from "membrain";
+import crypto from "node:crypto";
+
+const index = new ConcurrentHnswIndex(1536);
+
+await Promise.all(
+  myVectors.map((v) => Promise.resolve(index.add(crypto.randomUUID(), v))),
+);
+
+const results = index.search(queryVec, 10);
+index.close();
+```
+</CodeGroup>
+
+## Constructor
+
+<CodeGroup>
+```python Python
+ConcurrentHnswIndex(
+    dimension: int = 1536,
+    config: dict | None = None,   # m, ef_construction, ef_search, distance_metric
+    *,
+    lib_path: str | None = None,
+)
+```
+
+```javascript JavaScript
+new ConcurrentHnswIndex(
+  dimension?: number,           // defaults to 1536
+  config?: IndexConfig,         // m, ef_construction, ef_search, distance_metric
+  libPath?: string,
+)
+```
+</CodeGroup>
+
+The `Flat`, `Ivf`, `Lsh`, and `Vamana` variants take the same shape with their own per-index config keys.
+
+## Methods
+
+| Method | Description |
+|---|---|
+| `add(id, embedding)` | Insert a vector. Takes an exclusive write lock briefly. |
+| `remove(id)` | Delete by ID. Returns `bool` on whether the ID existed. |
+| `search(query, k=10)` | KNN query. Multiple threads may call in parallel. |
+| `clone()` | Cheap handle copy for another thread. Same underlying index, must be closed separately. |
+| `len()` / `__len__` | Current vector count. |
+| `dimension` | Configured dimension. |
+| `close()` | Release the handle. |
+
+## Patterns
+
+**Shared index across workers** — clone the handle, hand each worker its own:
+
+```python
+main = ConcurrentHnswIndex(dimension=768)
+workers = [main.clone() for _ in range(8)]
+# each worker closes its own clone; main owns the underlying index
+```
+
+**Mixed read/write load** — writes serialize briefly; batch them when possible:
+
+```python
+for chunk in batched(vectors, 1000):
+    for vec_id, vec in chunk:
+        index.add(vec_id, vec)
+# readers on other threads continue between write batches
+```
+
+**Swap base index** — change one import to trade latency for recall or memory:
+
+```python
+from membrain import ConcurrentIvfIndex as Index   # or Lsh, Flat, Vamana
+```
+
+## See also
+
+- [MemscaleDB concurrent](/memscaledb/concurrent) — lock design and benchmarks.
+- [HNSW](/memscaledb/hnsw), [IVF](/memscaledb/ivf), [LSH](/memscaledb/lsh), [Vamana](/memscaledb/vamana) — base index tradeoffs.

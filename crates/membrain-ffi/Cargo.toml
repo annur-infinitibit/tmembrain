@@ -1,0 +1,38 @@
+[package]
+name = "membrain-ffi"
+version.workspace = true
+edition.workspace = true
+description = "FFI bindings (Python/Node.js) for Membrain"
+
+[features]
+gpu = ["memscaledb/gpu"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+membrain-core = { workspace = true }
+membrain-storage = { workspace = true }
+membrain-pipeline = { workspace = true }
+membrain-audit = { workspace = true }
+membrain-graph = { workspace = true }
+membrain-conflict = { workspace = true }
+memscaledb = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+libc = { workspace = true }
+base64 = "0.22"
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+membrain-test-utils = { workspace = true }
+tempfile = { workspace = true }
+anyhow = { workspace = true }
+proptest = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

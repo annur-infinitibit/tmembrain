@@ -1,0 +1,12 @@
+[package]
+name = "membrain-index"
+version.workspace = true
+edition.workspace = true
+description = "Thin adapter bridging memscaledb to the membrain ecosystem"
+
+[dependencies]
+memscaledb = { workspace = true }
+membrain-core = { workspace = true }
+
+[lints]
+workspace = true

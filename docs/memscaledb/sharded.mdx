@@ -1,0 +1,260 @@
+---
+title: MemscaleDB Sharded
+description: Scale MemscaleDB to larger datasets with centroid-based partitioning across independent shards
+icon: cubes
+---
+
+# MemscaleDB Sharded
+
+MemscaleDB's sharded index partitions vectors across multiple independent HNSW shards using balanced k-means clustering. At query time, a small centroid index routes queries to the most relevant shards, merging results into a single ranked list. This approach is inspired by [SPANN](https://arxiv.org/abs/2111.08566) (Microsoft) and [C-SPANN](https://dl.acm.org/doi/10.1145/3588927) (CockroachDB).
+
+<CardGroup cols={2}>
+  <Card title="No External Service" icon="check-circle" color="#10b981">
+    Stays in-process. No network hops, no infrastructure to manage.
+  </Card>
+  <Card title="Inherits All Optimizations" icon="microchip">
+    Each shard is a full MemscaleDB HnswIndex with SIMD, PQ, caching, and filtering.
+  </Card>
+  <Card title="Automatic Routing" icon="route">
+    Centroid-based query routing searches only the most relevant shards.
+  </Card>
+  <Card title="Configurable Overlap" icon="clone">
+    Boundary vectors can be replicated across shards for improved recall.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+1. **Training**: Balanced k-means partitions your vectors into N clusters (shards).
+2. **Shard construction**: Each cluster of vectors is inserted into its own independent `HnswIndex`.
+3. **Centroid index**: A small HNSW index stores the N cluster centroids for fast routing.
+4. **Query routing**: For each query, the centroid index identifies the `nprobe` nearest shards. Only those shards are searched.
+5. **Result merging**: Top-k results from each searched shard are merged into a single ranked list.
+
+## Usage
+
+<CodeGroup>
+```python Python
+import uuid
+from membrain import MembrainShardedIndex
+
+# Prepare your data
+ids = [str(uuid.uuid4()) for _ in range(1000)]  # UUID strings
+vectors = [[0.1, 0.2, ...], ...]  # float arrays, all same dimension
+
+# Build the sharded index
+index = MembrainShardedIndex.build(
+    dimension=768,
+    ids=ids,
+    vectors=vectors,
+    config={
+        "num_shards": 16,
+        "nprobe": 3,
+        "overlap_factor": 1,
+    },
+)
+
+# Search
+results = index.search(query_vector, k=10)
+for result in results:
+    print(f"{result.id}  distance={result.distance:.4f}")
+
+# Save and restore
+data = index.save()
+restored = MembrainShardedIndex.load(data)
+
+index.close()
+```
+
+```javascript JavaScript
+import { MembrainShardedIndex } from "membrain";
+
+// Build the sharded index
+const index = MembrainShardedIndex.build(
+  ids,       // string[]
+  vectors,   // number[][]
+  {
+    dimension: 768,
+    num_shards: 16,
+    nprobe: 3,
+    overlap_factor: 1,
+  },
+);
+
+// Search
+const results = index.search(queryVector, 10);
+for (const r of results) {
+  console.log(`${r.id}  distance=${r.distance.toFixed(4)}`);
+}
+
+// Save and restore
+const data = index.save();
+const restored = MembrainShardedIndex.load(data);
+
+index.close();
+```
+</CodeGroup>
+
+## Configuration
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `dimension` | `int` | **required** | Vector dimension (must match your embeddings) |
+| `num_shards` | `int` | `16` | Number of partitions. More shards = less data per shard but more overhead |
+| `nprobe` | `int` | `3` | Number of shards to search per query. Higher = better recall, slower search |
+| `overlap_factor` | `int` | `1` | Number of nearest centroids to assign each vector to. `1` = no overlap, `2` = boundary replication |
+| `training_sample_size` | `int` | `50000` | Maximum vectors used for k-means training |
+| `kmeans_iterations` | `int` | `25` | Maximum iterations for k-means convergence |
+| `hnsw_config` | `object` | default | Per-shard HNSW configuration (m, ef_construction, ef_search, distance_metric, cache) |
+
+### Tuning Guidelines
+
+**nprobe** controls the recall-latency tradeoff:
+- `nprobe=1`: Fastest, lowest recall. Good for high-throughput, low-latency workloads.
+- `nprobe=3` (default): Good balance for most use cases.
+- `nprobe=num_shards`: Equivalent to searching the entire dataset. Maximum recall.
+
+**overlap_factor** improves boundary recall at the cost of memory:
+- `overlap_factor=1` (default): Each vector lives in exactly one shard.
+- `overlap_factor=2`: Each vector is assigned to its 2 nearest centroids. Adds ~100% memory overhead but significantly improves recall for vectors near shard boundaries.
+
+**num_shards** should be chosen based on dataset size:
+- Under 100k vectors: 4-8 shards
+- 100k-1M vectors: 8-16 shards
+- 1M-10M vectors: 16-64 shards
+- Over 10M vectors: 64-256 shards
+
+## Operations
+
+### Adding and Removing Vectors
+
+After building, you can incrementally add and remove vectors. New vectors are routed to their nearest centroid shard(s).
+
+<CodeGroup>
+```python Python
+new_id = str(uuid.uuid4())
+index.add(new_id, [0.1, 0.2, ...])
+index.remove(ids[0])
+```
+
+```javascript JavaScript
+const newId = crypto.randomUUID();
+index.add(newId, [0.1, 0.2, ...]);
+index.remove(ids[0]);
+```
+</CodeGroup>
+
+### Filtered Search
+
+Search with an ID allowlist to restrict results to a subset of vectors.
+
+<CodeGroup>
+```python Python
+results = index.search_with_filter(
+    query_vector,
+    k=10,
+    allowed_ids=[ids[0], ids[2], ids[4]],
+)
+```
+
+```javascript JavaScript
+const results = index.searchWithFilter(
+  queryVector,
+  10,
+  [ids[0], ids[2], ids[4]],
+);
+```
+</CodeGroup>
+
+### Batch Search
+
+Run multiple queries in parallel using Rayon-based parallelism.
+
+<CodeGroup>
+```python Python
+queries = [query1, query2, query3]
+batch_results = index.batch_search(queries, k=10)
+# batch_results[i] corresponds to queries[i]
+```
+
+```javascript JavaScript
+const batchResults = index.batchSearch([query1, query2, query3], 10);
+// batchResults[i] corresponds to queries[i]
+```
+</CodeGroup>
+
+### Rebalancing
+
+After many incremental additions, shard sizes can become uneven. Rebalancing retrains the centroids from all current vectors and redistributes them.
+
+<CodeGroup>
+```python Python
+index.rebalance()
+info = index.info()
+print(f"Shards: {info.num_shards}, Stddev: {info.size_stddev:.1f}")
+```
+
+```javascript JavaScript
+index.rebalance();
+const info = index.info();
+console.log(`Shards: ${info.num_shards}, Stddev: ${info.size_stddev.toFixed(1)}`);
+```
+</CodeGroup>
+
+### Monitoring
+
+<CodeGroup>
+```python Python
+# Per-shard statistics
+info = index.info()
+for shard in info.shards:
+    print(f"Shard {shard.shard_index}: {shard.count} vectors")
+
+# Performance metrics
+metrics = index.metrics()
+print(f"Searches: {metrics.searches}, Cache hits: {metrics.cache_hits}")
+```
+
+```javascript JavaScript
+const info = index.info();
+for (const shard of info.shards) {
+  console.log(`Shard ${shard.shard_index}: ${shard.count} vectors`);
+}
+
+const metrics = index.metrics();
+console.log(`Searches: ${metrics.searches}, Cache hits: ${metrics.cache_hits}`);
+```
+</CodeGroup>
+
+## When to Use MemscaleDB Sharded
+
+| Scenario | MemscaleDB Sharded? |
+|---|---|
+| Dataset exceeds single-index memory | Yes -- partitioning reduces per-shard memory |
+| Need faster search on large datasets | Yes -- only nprobe shards are searched |
+| Single-process, moderate dataset | No -- use the standard [MemscaleDB index](/memscaledb/overview) |
+| Multi-process or networked deployment | No -- use [Qdrant](/integrations/qdrant) or [Milvus](/integrations/milvus) |
+| Batch ingestion of large datasets | Yes -- k-means training amortizes over all vectors |
+
+## Parallel Shard Search
+
+The sharded index searches qualifying shards in parallel using Rayon. On an 8-core system, searching 4 shards simultaneously yields close to 4x throughput compared to sequential shard search. The merge step (collecting top-k from all shard results) is performed after all parallel searches complete.
+
+This parallelism is automatic -- no additional configuration is needed. The speedup scales with the number of available CPU cores and the `nprobe` value.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MemscaleDB" icon="bolt" href="/memscaledb/overview">
+    Standard single-shard MemscaleDB index for smaller datasets
+  </Card>
+  <Card title="MemscaleDB Concurrent" icon="arrows-rotate" href="/memscaledb/concurrent">
+    Thread-safe concurrent variants of all index types
+  </Card>
+  <Card title="Qdrant" icon="server" href="/integrations/qdrant">
+    Production-scale distributed vector search
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Comparison of all supported vector backends
+  </Card>
+</CardGroup>

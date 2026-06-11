@@ -1,0 +1,345 @@
+---
+title: Confidence Scoring
+description: Track certainty levels for memories and facts
+icon: gauge
+---
+
+# Confidence Scoring
+
+Track the certainty and reliability of memories with confidence scores ranging from 0.0 to 1.0.
+
+## Overview
+
+Confidence scores help LLMs:
+- Prioritize reliable information
+- Handle uncertain knowledge appropriately
+- Improve response quality with confidence-weighted context
+- Update beliefs as new information arrives
+
+## Using Confidence Scores
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+
+client = MembrainClient()
+
+# High confidence - verified fact
+client.store_fact("Python 3.12 was released in October 2023", confidence=0.95)
+
+# Moderate confidence - likely but not verified
+client.store_fact("FastAPI is faster than Flask in most benchmarks", confidence=0.75)
+
+# Low confidence - uncertain or speculative
+client.store_fact("Python 4.0 might be released in 2026", confidence=0.3)
+
+# Search returns confidence scores
+result = client.search("Python performance", limit=5)
+for memory in result.memories:
+    print(f"{memory.content} (confidence: {memory.confidence:.2f})")
+
+client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient();
+
+// High confidence - verified fact
+client.storeFact('Python 3.12 was released in October 2023', 0.95);
+
+// Moderate confidence - likely but not verified
+client.storeFact('FastAPI is faster than Flask in most benchmarks', 0.75);
+
+// Low confidence - uncertain or speculative
+client.storeFact('Python 4.0 might be released in 2026', 0.3);
+
+// Search returns confidence scores
+const result = client.search('Python performance', 5);
+for (const memory of result.memories) {
+    console.log(`${memory.content} (confidence: ${memory.confidence.toFixed(2)})`);
+}
+
+client.close();
+```
+
+```rust Rust
+use membrain_core::MembrainClient;
+
+let client = MembrainClient::new(None)?;
+
+// High confidence - verified fact
+client.store_fact("Python 3.12 was released in October 2023", 0.95)?;
+
+// Moderate confidence - likely but not verified
+client.store_fact("FastAPI is faster than Flask in most benchmarks", 0.75)?;
+
+// Low confidence - uncertain or speculative
+client.store_fact("Python 4.0 might be released in 2026", 0.3)?;
+
+// Search returns confidence scores
+let result = client.search("Python performance", 5)?;
+for memory in result.memories {
+    println!("{} (confidence: {:.2})", memory.content, memory.confidence);
+}
+```
+</CodeGroup>
+
+## LLM Integration: Confidence-Weighted Responses
+
+Use confidence scores to inform LLM responses:
+
+<CodeGroup>
+```python Python with OpenAI
+from membrain import MembrainClient
+from openai import OpenAI
+
+memory = MembrainClient()
+llm = OpenAI()
+
+# Store facts with varying confidence
+memory.store_fact("Rust prevents data races at compile time", 0.98)
+memory.store_fact("Rust is faster than C++ in some benchmarks", 0.7)
+memory.store_fact("Rust might replace C in Linux kernel", 0.5)
+
+# Retrieve context
+user_query = "Tell me about Rust's advantages"
+context = memory.search(user_query, limit=5)
+
+# Build confidence-annotated prompt
+facts = []
+for m in context.memories:
+    certainty = "certain" if m.confidence > 0.9 else "likely" if m.confidence > 0.7 else "uncertain"
+    facts.append(f"[{certainty}] {m.content}")
+
+system_prompt = f"""Use these facts to answer. Consider the certainty level:
+{chr(10).join(facts)}
+
+High certainty facts are verified. Low certainty facts are speculative - mention uncertainty in your response.
+"""
+
+response = llm.chat.completions.create(
+    model="gpt-4",
+    messages=[
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_query}
+    ]
+)
+
+print(response.choices[0].message.content)
+memory.close()
+```
+
+```javascript JavaScript with LangChain
+import { MembrainClient } from 'membrain';
+import { ChatOpenAI } from 'langchain/chat_models/openai';
+
+const memory = new MembrainClient();
+const llm = new ChatOpenAI({ modelName: 'gpt-4' });
+
+// Store facts with varying confidence
+memory.storeFact('Rust prevents data races at compile time', 0.98);
+memory.storeFact('Rust is faster than C++ in some benchmarks', 0.7);
+memory.storeFact('Rust might replace C in Linux kernel', 0.5);
+
+// Retrieve context
+const userQuery = "Tell me about Rust's advantages";
+const context = memory.search(userQuery, 5);
+
+// Build confidence-annotated prompt
+const facts = [];
+for (const m of context.memories) {
+    const certainty = m.confidence > 0.9 ? 'certain' : m.confidence > 0.7 ? 'likely' : 'uncertain';
+    facts.push(`[${certainty}] ${m.content}`);
+}
+
+const systemPrompt = `Use these facts to answer. Consider the certainty level:
+${facts.join('\n')}
+
+High certainty facts are verified. Low certainty facts are speculative - mention uncertainty in your response.
+`;
+
+const response = await llm.call([
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userQuery }
+]);
+
+console.log(response);
+memory.close();
+```
+</CodeGroup>
+
+## Confidence Guidelines
+
+<AccordionGroup>
+  <Accordion title="0.95 - 1.0: Verified Facts">
+    Use for:
+    - Official documentation
+    - Verified statistics
+    - Well-established facts
+    - API specifications
+
+    Example: "Python 3.12 was released in October 2023"
+  </Accordion>
+
+  <Accordion title="0.80 - 0.94: High Confidence">
+    Use for:
+    - Generally accepted information
+    - Expert consensus
+    - Widely documented practices
+
+    Example: "Type hints improve Python code maintainability"
+  </Accordion>
+
+  <Accordion title="0.60 - 0.79: Moderate Confidence">
+    Use for:
+    - Benchmark results
+    - Comparative statements
+    - Best practices (context-dependent)
+
+    Example: "FastAPI is faster than Flask in most scenarios"
+  </Accordion>
+
+  <Accordion title="0.40 - 0.59: Low Confidence">
+    Use for:
+    - Opinions
+    - Unverified claims
+    - Context-specific statements
+
+    Example: "Most developers prefer async frameworks"
+  </Accordion>
+
+  <Accordion title="< 0.40: Speculation">
+    Use for:
+    - Predictions
+    - Rumors
+    - Highly uncertain information
+
+    Example: "Python 4.0 might be released in 2026"
+  </Accordion>
+</AccordionGroup>
+
+## Filtering by Confidence
+
+Search only high-confidence memories:
+
+<CodeGroup>
+```python Python
+client = MembrainClient()
+
+# Get all memories above confidence threshold
+high_confidence = [m for m in client.get_all() if m.confidence > 0.9]
+
+# Search with confidence filter
+result = client.search("Python features", limit=10)
+reliable_facts = [m for m in result.memories if m.confidence > 0.85]
+```
+
+```javascript JavaScript
+const client = new MembrainClient();
+
+// Get all memories above confidence threshold
+const all = client.getAll();
+const highConfidence = all.filter(m => m.confidence > 0.9);
+
+// Search with confidence filter
+const result = client.search('Python features', 10);
+const reliableFacts = result.memories.filter(m => m.confidence > 0.85);
+```
+
+```rust Rust
+let client = MembrainClient::new(None)?;
+
+// Get all memories above confidence threshold
+let all = client.get_all()?;
+let high_confidence: Vec<_> = all.into_iter()
+    .filter(|m| m.confidence > 0.9)
+    .collect();
+
+// Search with confidence filter
+let result = client.search("Python features", 10)?;
+let reliable_facts: Vec<_> = result.memories.into_iter()
+    .filter(|m| m.confidence > 0.85)
+    .collect();
+```
+</CodeGroup>
+
+## Updating Confidence
+
+When new information arrives, update existing memories:
+
+<CodeGroup>
+```python Python
+client = MembrainClient()
+
+# Initial uncertain fact
+result = client.store_fact("Feature X might be in Python 3.13", 0.5)
+memory_id = result.id
+
+# Later: confirmed information
+client.update_confidence(memory_id, 0.95)
+
+# Or delete if proven false
+if proven_false:
+    client.delete(memory_id)
+```
+
+```javascript JavaScript
+const client = new MembrainClient();
+
+// Initial uncertain fact
+const result = client.storeFact('Feature X might be in Python 3.13', 0.5);
+const memoryId = result.id;
+
+// Later: confirmed information
+client.updateConfidence(memoryId, 0.95);
+
+// Or delete if proven false
+if (provenFalse) {
+    client.delete(memoryId);
+}
+```
+
+```rust Rust
+let client = MembrainClient::new(None)?;
+
+// Initial uncertain fact
+let result = client.store_fact("Feature X might be in Python 3.13", 0.5)?;
+let memory_id = result.id;
+
+// Later: confirmed information
+client.update_confidence(&memory_id, 0.95)?;
+
+// Or delete if proven false
+if proven_false {
+    client.delete(&memory_id)?;
+}
+```
+</CodeGroup>
+
+## Graph Memory Integration
+
+Confidence affects graph relationships:
+
+```
+Edge_Weight = Cosine_Similarity × Confidence_A × Confidence_B
+```
+
+- High confidence nodes form stronger connections
+- Low confidence nodes have weaker influence
+- Multi-hop queries prioritize high confidence paths
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Deduplication" icon="copy" href="/features/deduplication">
+    Merge similar memories
+  </Card>
+  <Card title="Graph Memory" icon="diagram-project" href="/features/graph-memory">
+    Confidence-weighted relationships
+  </Card>
+  <Card title="RAG System" icon="book-open" href="/cookbooks/rag-system">
+    Build reliable RAG with confidence
+  </Card>
+</CardGroup>

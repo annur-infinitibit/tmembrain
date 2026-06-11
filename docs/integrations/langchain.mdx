@@ -1,0 +1,188 @@
+---
+title: LangChain
+description: Using Membrain with LangChain for RAG chains and tool-using agents
+icon: link
+---
+
+# LangChain
+
+LangChain's chain and agent abstractions pair naturally with Membrain: use Membrain for persistent memory and LangChain for prompt orchestration and tool use.
+
+## RAG Chain with Conversation History
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory
+from langchain.schema import Document
+
+memory = MembrainClient()
+llm = ChatOpenAI(model="gpt-4")
+lc_memory = ConversationBufferMemory(return_messages=True)
+
+# --- Seed the knowledge base ---
+docs = [
+    "Membrain provides semantic search over persistent memory.",
+    "Vector embeddings enable similarity-based retrieval.",
+    "RAG combines retrieval with generation for grounded answers.",
+]
+for doc in docs:
+    memory.store_fact(doc, 0.9)
+
+# --- Answer a question using Membrain context ---
+def answer(question: str) -> str:
+    # 1. Retrieve relevant facts from Membrain
+    results = memory.search(question, limit=5)
+    context = "\n".join([m.content for m in results.memories])
+
+    # 2. Wrap context as LangChain documents for the chain
+    context_docs = [Document(page_content=context)]
+
+    # 3. Generate with LangChain, preserving conversation history
+    response = llm.predict(
+        f"Context:\n{context}\n\nConversation so far:\n"
+        f"{lc_memory.chat_history}\n\nQuestion: {question}"
+    )
+
+    # 4. Persist both sides of the exchange in Membrain
+    memory.store_event("user_msg", question)
+    memory.store_event("assistant_msg", response)
+    lc_memory.add_user_message(question)
+    lc_memory.add_ai_message(response)
+
+    return response
+
+print(answer("What is RAG?"))
+print(answer("How does Membrain help with that?"))  # uses history
+
+memory.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+import { ChatOpenAI } from 'langchain/chat_models/openai';
+import { HumanMessage, SystemMessage } from 'langchain/schema';
+
+const memory = new MembrainClient();
+const llm = new ChatOpenAI({ modelName: 'gpt-4' });
+
+// Seed knowledge
+const docs = [
+  "Membrain provides semantic search over persistent memory.",
+  "Vector embeddings enable similarity-based retrieval.",
+  "RAG combines retrieval with generation for grounded answers.",
+];
+docs.forEach(doc => memory.storeFact(doc, 0.9));
+
+// Conversation history kept in Membrain
+const history = [];
+
+async function answer(question) {
+  // 1. Retrieve context
+  const results = memory.search(question, 5);
+  const context = results.memories.map(m => m.content).join('\n');
+
+  // 2. Build messages
+  const messages = [
+    new SystemMessage({ content: `Context:\n${context}` }),
+    ...history,
+    new HumanMessage({ content: question }),
+  ];
+
+  // 3. Call LLM
+  const response = await llm.invoke(messages);
+  const answer = response.content;
+
+  // 4. Persist
+  memory.storeEvent("user_msg", question);
+  memory.storeEvent("assistant_msg", answer);
+  history.push(new HumanMessage({ content: question }));
+  history.push(response);
+
+  return answer;
+}
+
+console.log(await answer("What is RAG?"));
+console.log(await answer("How does Membrain help with that?"));
+
+memory.close();
+```
+
+```rust Rust (Core API Equivalent)
+use membrain_ffi::MembrainClient;
+
+let client = MembrainClient::new().unwrap();
+
+// Store conversation memory (equivalent to LangChain memory)
+client.store_event("user_msg", "What is Rust?").unwrap();
+client.store_event("assistant_msg", "Rust is a systems language").unwrap();
+
+// Retrieve context for next turn
+let context = client.search("Rust programming", 5).unwrap();
+for m in &context.memories {
+    println!("{}: {}", m.memory_type, m.content);
+}
+```
+</CodeGroup>
+
+## Tool Backed by Membrain
+
+Expose Membrain search as a LangChain `Tool` so agents can query memory autonomously.
+
+```python
+from membrain import MembrainClient
+from langchain.agents import create_openai_tools_agent, AgentExecutor
+from langchain.chat_models import ChatOpenAI
+from langchain.tools import Tool
+
+memory = MembrainClient()
+
+# Seed some knowledge
+memory.store_fact("The boiling point of water is 100°C at sea level", 0.95)
+memory.store_fact("Photosynthesis converts sunlight into chemical energy", 0.95)
+
+def search_memory(query: str) -> str:
+    """Search Membrain for facts relevant to the query."""
+    results = memory.search(query, limit=3)
+    if not results.memories:
+        return "No relevant information found."
+    return "\n".join([f"- {m.content}" for m in results.memories])
+
+memory_tool = Tool(
+    name="search_memory",
+    func=search_memory,
+    description="Search persistent memory for facts and past context. Use this before answering factual questions.",
+)
+
+llm = ChatOpenAI(model="gpt-4")
+agent = create_openai_tools_agent(llm, tools=[memory_tool], prompt=...)
+executor = AgentExecutor(agent=agent, tools=[memory_tool])
+
+result = executor.invoke({"input": "What is the boiling point of water?"})
+print(result["output"])
+
+memory.close()
+```
+
+<Tip>
+  Registering Membrain as a tool lets LangChain agents decide *when* to consult memory, reducing unnecessary retrieval calls.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="LangGraph" icon="diagram-project" href="/integrations/langgraph">
+    LangChain's graph-based agent workflow layer
+  </Card>
+  <Card title="LlamaIndex" icon="magnifying-glass" href="/integrations/llamaindex">
+    Index-and-query-engine RAG pipelines
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Pluggable vector backends
+  </Card>
+  <Card title="Graph Memory" icon="diagram-project" href="/cookbooks/graph-memory">
+    Multi-hop relationship retrieval
+  </Card>
+</CardGroup>

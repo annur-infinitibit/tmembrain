@@ -1,0 +1,49 @@
+---
+title: Memory Operations
+description: Store and manage different memory types
+icon: database
+---
+
+# Memory Operations
+
+Store different types of memories and manage them.
+
+See [Memory Types](/features/memory-types) for comprehensive documentation with examples in all languages.
+
+## Store Operations
+
+All store methods return a `StoreResult` with the memory ID and merge status.
+
+### Episodic Memory
+
+- `store_event(event_type, description)`
+- `store_observation(content)`
+- `store_preference(holder, subject, preference, strength)`
+
+### Semantic Memory
+
+- `store_fact(statement, confidence)`
+- `store_concept(name, definition)`
+- `store_entity(name, entity_type)`
+
+### Procedural Memory
+
+- `store_workflow(name, steps)`
+- `store_skill(name, description)`
+- `store_pattern(name, description)`
+
+### Agent State
+
+- `store_goal(description)`
+- `store_task(description)`
+
+## Management Operations
+
+- `get_by_id(memory_id)` - Retrieve specific memory
+- `get_by_type(memory_type)` - Get all memories of type
+- `get_all()` - Retrieve all memories
+- `delete(memory_id)` - Delete memory
+- `update_confidence(memory_id, new_confidence)` - Update confidence
+- `get_stats()` - Get system statistics
+
+For examples, see [Memory Types](/features/memory-types).

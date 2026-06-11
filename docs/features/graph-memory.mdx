@@ -1,0 +1,100 @@
+---
+title: Graph Memory
+description: Multi-hop traversal for complex knowledge relationships
+icon: diagram-project
+---
+
+# Graph Memory
+
+`MembrainGraph` builds a weighted graph over memory embeddings. Edges form automatically based on attention scores between pairs of nodes. Query with a multi-hop traversal to discover indirect connections that plain vector search misses.
+
+Use it when answering a question depends on chaining facts (X works at Y, Y partners with Z, so X has a connection to Z).
+
+## Quickstart
+
+<CodeGroup>
+```python Python
+from membrain import MembrainGraph
+
+graph = MembrainGraph({"hidden_dim": 128, "attention_threshold": 0.7})
+
+graph.add_node(memory_id="rust", embedding=embed("Rust language"), confidence=0.9)
+graph.add_node(memory_id="mozilla", embedding=embed("Mozilla Foundation"), confidence=0.9)
+graph.add_node(memory_id="firefox", embedding=embed("Firefox browser"), confidence=0.9)
+
+result = graph.query(query_embedding=embed("Rust origins"), max_hops=3, top_k=5)
+for node in result.nodes:
+    print(f"{node.memory_id}  score={node.score:.3f}  hops={node.hops}")
+```
+
+```javascript JavaScript
+import { MembrainGraph } from "membrain";
+
+const graph = new MembrainGraph({ hidden_dim: 128, attention_threshold: 0.7 });
+
+graph.addNode("rust", embed("Rust language"), 0.9);
+graph.addNode("mozilla", embed("Mozilla Foundation"), 0.9);
+graph.addNode("firefox", embed("Firefox browser"), 0.9);
+
+const result = graph.query(embed("Rust origins"), 3, 5);
+for (const node of result.nodes) {
+  console.log(`${node.memory_id}  score=${node.score.toFixed(3)}  hops=${node.hops}`);
+}
+```
+</CodeGroup>
+
+`embed(text)` is whatever embedder you use (OpenAI, sentence-transformers, etc.). The graph is embedder-agnostic.
+
+## Config
+
+| Key | Default | Purpose |
+|---|---|---|
+| `hidden_dim` | `128` | Internal attention hidden size. |
+| `graph_embedding_dim` | `16` | Output dim for graph-aware node embeddings. |
+| `attention_threshold` | `0.7` | Min attention score to form an edge. |
+| `max_neighbors` | `32` | Cap on out-edges per node. |
+
+## Operations
+
+| Method | Description |
+|---|---|
+| `add_node(memory_id, embedding, confidence)` | Insert a node. Edges form to existing nodes above the attention threshold. |
+| `remove_node(memory_id)` | Delete a node and its edges. |
+| `query(query_embedding, max_hops, top_k)` | Multi-hop traversal. Returns scored nodes with the hop distance. |
+| `node_count()` / `edge_count()` | Stats. |
+| `prune(confidence_threshold)` | Drop low-confidence nodes. |
+| `save(path)` / `load(path)` | Persist and restore. |
+
+## Connecting memories to the graph
+
+Store a memory with `client.store_*`, then mirror it into the graph keyed by the returned ID:
+
+```python
+result = client.store_fact("Rust was created at Mozilla", confidence=0.95)
+graph.add_node(result.id, embedding=embed("Rust was created at Mozilla"), confidence=0.95)
+```
+
+## Use with an LLM
+
+Feed multi-hop results into the prompt when a direct similarity search misses the chain:
+
+```python
+hops = graph.query(embed(user_question), max_hops=3, top_k=6)
+memory_ids = [n.memory_id for n in hops.nodes]
+memories = [client.get(mid) for mid in memory_ids]
+context = "\n".join(m.content for m in memories if m)
+# ... pass context to your LLM
+```
+
+## Persistence
+
+```python
+graph.save("knowledge.graph")
+restored = MembrainGraph.load("knowledge.graph")
+```
+
+## See also
+
+- [Graph memory cookbook](/cookbooks/graph-memory) — worked examples with knowledge graphs.
+- [Graph operations reference](/api-reference/graph-operations) — full method list.
+- [Semantic search](/features/semantic-search) — use this when single-hop is enough.

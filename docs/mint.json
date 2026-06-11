@@ -1,0 +1,200 @@
+{
+  "name": "Membrain",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#7C3AED",
+    "light": "#A78BFA",
+    "dark": "#6D28D9",
+    "anchors": {
+      "from": "#7C3AED",
+      "to": "#A78BFA"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "Support",
+      "url": "https://github.com/membrain/membrain/discussions"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "GitHub",
+    "url": "https://github.com/membrain/membrain"
+  },
+  "tabs": [
+    {
+      "name": "Integrations",
+      "url": "integrations"
+    },
+    {
+      "name": "MemscaleDB",
+      "url": "memscaledb"
+    },
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    },
+    {
+      "name": "Cookbooks",
+      "url": "cookbooks"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "Documentation",
+      "icon": "book-open-cover",
+      "url": "https://docs.membrain.dev"
+    },
+    {
+      "name": "Community",
+      "icon": "slack",
+      "url": "https://github.com/membrain/membrain/discussions"
+    },
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/membrain/membrain"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Getting Started",
+      "icon": "rocket",
+      "pages": [
+        "introduction",
+        "quickstart",
+        "installation"
+      ]
+    },
+    {
+      "group": "Core Features",
+      "icon": "sparkles",
+      "pages": [
+        "features/memory-types",
+        "features/semantic-search",
+        "features/metadata-scoping",
+        "features/graph-memory",
+        "features/deduplication",
+        "features/confidence-scoring",
+        "features/multi-agent",
+        "features/case-based-reasoning",
+        "features/agent-framework"
+      ]
+    },
+    {
+      "group": "LLM Frameworks",
+      "icon": "puzzle-piece",
+      "pages": [
+        "integrations/langchain",
+        "integrations/llamaindex",
+        "integrations/autogen",
+        "integrations/crewai",
+        "integrations/langgraph"
+      ]
+    },
+    {
+      "group": "Vector Backends",
+      "icon": "database",
+      "pages": [
+        "integrations/vector-databases",
+        "integrations/qdrant",
+        "integrations/chromadb",
+        "integrations/faiss",
+        "integrations/milvus",
+        "integrations/pinecone",
+        "integrations/lancedb"
+      ]
+    },
+    {
+      "group": "Advanced",
+      "icon": "sliders",
+      "pages": [
+        "advanced/architecture",
+        "advanced/configuration",
+        "advanced/performance"
+      ]
+    },
+    {
+      "group": "MemscaleDB",
+      "icon": "bolt",
+      "pages": [
+        "memscaledb/overview",
+        "memscaledb/hnsw",
+        "memscaledb/flat",
+        "memscaledb/ivf",
+        "memscaledb/lsh",
+        "memscaledb/vamana",
+        "memscaledb/sharded"
+      ]
+    },
+    {
+      "group": "Advanced",
+      "icon": "sliders",
+      "pages": [
+        "memscaledb/concurrent",
+        "memscaledb/distributed",
+        "memscaledb/multi-tenant",
+        "memscaledb/gpu-acceleration"
+      ]
+    },
+    {
+      "group": "API Reference",
+      "icon": "code",
+      "pages": [
+        "api-reference/overview",
+        "api-reference/python-api",
+        "api-reference/javascript-api",
+        "api-reference/rust-api",
+        "api-reference/client",
+        "api-reference/memory-operations",
+        "api-reference/search-query",
+        "api-reference/conversation",
+        "api-reference/rerankers",
+        "api-reference/graph-operations",
+        "api-reference/cbr-api",
+        "api-reference/concurrent-indices",
+        "api-reference/sharded-index",
+        "api-reference/distributed-index",
+        "api-reference/multi-tenant-index",
+        "api-reference/vector-backends"
+      ]
+    },
+    {
+      "group": "Cookbooks",
+      "icon": "book-open",
+      "pages": [
+        "cookbooks/chatbot-with-memory",
+        "cookbooks/scoped-memory-per-user",
+        "cookbooks/rag-system",
+        "cookbooks/ai-agents",
+        "cookbooks/multi-agent",
+        "cookbooks/reranking",
+        "cookbooks/agent-training",
+        "cookbooks/advanced-patterns"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/membrain/membrain"
+  },
+  "feedback": {
+    "thumbsRating": true,
+    "suggestEdit": true,
+    "raiseIssue": true
+  },
+  "redirects": [
+    { "source": "/integrations/memscaledb", "destination": "/memscaledb/overview" },
+    { "source": "/integrations/memscaledb-flat", "destination": "/memscaledb/flat" },
+    { "source": "/integrations/memscaledb-ivf", "destination": "/memscaledb/ivf" },
+    { "source": "/integrations/memscaledb-lsh", "destination": "/memscaledb/lsh" },
+    { "source": "/integrations/memscaledb-vamana", "destination": "/memscaledb/vamana" },
+    { "source": "/integrations/memscaledb-sharded", "destination": "/memscaledb/sharded" },
+    { "source": "/integrations/memscaledb-concurrent", "destination": "/memscaledb/concurrent" },
+    { "source": "/integrations/memscaledb-distributed", "destination": "/memscaledb/distributed" },
+    { "source": "/integrations/memscaledb-multi-tenant", "destination": "/memscaledb/multi-tenant" },
+    { "source": "/advanced/gpu-acceleration", "destination": "/memscaledb/gpu-acceleration" }
+  ]
+}

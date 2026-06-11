@@ -1,0 +1,594 @@
+---
+title: Multi-Agent Systems
+description: Building collaborative AI agents with shared memory
+icon: users
+---
+
+# Cookbook: Multi-Agent LLM Systems
+
+Building collaborative LLM agents with shared memory. Perfect for complex workflows requiring multiple specialized LLMs working together.
+
+## Shared Knowledge Base for LLM Agents
+
+Create a centralized knowledge base that multiple LLM agents can read from and write to.
+
+<CodeGroup>
+```python Python with Multiple LLM Agents
+from membrain import MembrainClient
+from openai import OpenAI
+
+# Shared memory for all LLM agents
+shared_memory = MembrainClient()
+llm = OpenAI()
+
+# Agent 1: Research LLM Agent
+def research_agent(query: str) -> str:
+    """LLM agent that researches topics and stores findings"""
+    # Use LLM to research
+    response = llm.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": f"Research and summarize: {query}"}]
+    )
+
+    research_result = response.choices[0].message.content
+
+    # Store findings in shared memory
+    shared_memory.store_fact(research_result, confidence=0.85)
+    shared_memory.store_event("research", f"Researched {query}")
+
+    return research_result
+
+# Agent 2: Writer LLM Agent
+def writer_agent(topic: str) -> str:
+    """LLM agent that writes content using shared knowledge"""
+    # Query shared memory for context
+    context = shared_memory.search(f"{topic}", limit=5)
+    context_text = "\n".join([m.content for m in context.memories])
+
+    # Use LLM to write with context from research agent
+    response = llm.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": f"Use this research:\n{context_text}"},
+            {"role": "user", "content": f"Write an article about {topic}"}
+        ]
+    )
+
+    article = response.choices[0].message.content
+
+    # Store writing task
+    shared_memory.store_task(f"Wrote article about {topic}")
+
+    return article
+
+# Multi-agent collaboration
+print("Research agent working...")
+research_agent("Quantum computing applications")
+research_agent("Quantum algorithms")
+
+print("Writer agent working...")
+article = writer_agent("quantum computing")
+print(f"Article: {article[:200]}...")
+
+shared_memory.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+// Shared knowledge base for multiple agents
+const kb = new MembrainClient();
+
+// Agent 1: Research Agent
+function researchAgent(query) {
+  const result = kb.storeFact(
+    `Research finding: ${query} is an important topic`,
+    0.85
+  );
+  kb.storeEvent("research", `Agent researched ${query}`);
+  return result.id;
+}
+
+// Agent 2: Writer Agent
+function writerAgent(topic) {
+  // Query shared knowledge
+  const results = kb.search(`${topic} research`, 5);
+  const context = results.memories.map(m => m.content).join(" ");
+
+  // Store writing task
+  kb.storeTask(`Write article about ${topic}`);
+  return context;
+}
+
+// Collaboration
+researchAgent("quantum computing");
+researchAgent("machine learning");
+
+const context = writerAgent("quantum computing");
+console.log(`Writer has context: ${context.slice(0, 100)}...`);
+
+kb.close();
+```
+
+```rust Rust
+use membrain_ffi::MembrainClient;
+
+let shared_memory = MembrainClient::new().unwrap();
+
+// Research agent stores findings
+shared_memory.store_fact("Quantum computing uses qubits", 0.85).unwrap();
+shared_memory.store_event("research", "Researched quantum computing").unwrap();
+
+// Writer agent retrieves context
+let context = shared_memory.search("quantum computing", 5).unwrap();
+for m in &context.memories {
+    println!("Context: {}", m.content);
+}
+
+shared_memory.store_task("Wrote article about quantum computing").unwrap();
+```
+</CodeGroup>
+
+<Tip>
+  Shared knowledge bases enable agents to build on each other's work, creating emergent collaboration patterns without explicit coordination.
+</Tip>
+
+## Agent Skill Registry
+
+Build a skill registry to help agents discover and delegate tasks to specialized agents.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+
+client = MembrainClient()
+
+# Register agent skills
+agents = {
+    "CodeReviewBot": [
+        ("code_analysis", "Analyzes code for bugs and style issues"),
+        ("security_scan", "Scans for security vulnerabilities"),
+    ],
+    "TestBot": [
+        ("unit_test_gen", "Generates unit tests"),
+        ("integration_test", "Creates integration tests"),
+    ],
+    "DocBot": [
+        ("api_docs", "Generates API documentation"),
+        ("tutorial_writer", "Writes tutorials"),
+    ],
+}
+
+for agent_name, skills in agents.items():
+    for skill_name, description in skills:
+        client.store_skill(skill_name, description)
+        client.store_entity(agent_name, "agent")
+
+# Find agent for task
+task = "need code review"
+results = client.search(task, limit=3)
+print(f"Recommended: {results.memories[0].content}")
+
+client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient();
+
+// Register agent skills
+const agents = {
+  "CodeReviewBot": [
+    ["code_analysis", "Analyzes code for bugs and style issues"],
+    ["security_scan", "Scans for security vulnerabilities"],
+  ],
+  "TestBot": [
+    ["unit_test_gen", "Generates unit tests"],
+    ["integration_test", "Creates integration tests"],
+  ],
+  "DocBot": [
+    ["api_docs", "Generates API documentation"],
+    ["tutorial_writer", "Writes tutorials"],
+  ],
+};
+
+for (const [agentName, skills] of Object.entries(agents)) {
+  for (const [skillName, description] of skills) {
+    client.storeSkill(skillName, description);
+    client.storeEntity(agentName, "agent");
+  }
+}
+
+// Find agent for task
+const task = "need code review";
+const results = client.search(task, 3);
+console.log(`Recommended: ${results.memories[0].content}`);
+
+client.close();
+```
+
+```rust Rust
+use membrain_ffi::MembrainClient;
+
+let client = MembrainClient::new().unwrap();
+
+// Register skills
+client.store_skill("code_analysis", "Analyzes code for bugs and style issues").unwrap();
+client.store_skill("unit_test_gen", "Generates unit tests").unwrap();
+client.store_entity("CodeReviewBot", "agent").unwrap();
+client.store_entity("TestBot", "agent").unwrap();
+
+// Find agent for task
+let results = client.search("need code review", 3).unwrap();
+println!("Recommended: {}", results.memories[0].content);
+```
+</CodeGroup>
+
+<Note>
+  The skill registry pattern enables dynamic task routing where agents automatically find the most qualified agent for each task based on semantic similarity.
+</Note>
+
+## Multi-Agent Coordination
+
+Build a team of agents that communicate and coordinate through shared memory.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+import time
+
+class Agent:
+    def __init__(self, name, memory_client):
+        self.name = name
+        self.client = memory_client
+        self.client.store_entity(self.name, "agent")
+
+    def log_action(self, action, details):
+        self.client.store_event(
+            f"{self.name}_{action}",
+            f"{self.name}: {details}"
+        )
+
+    def communicate(self, message):
+        self.client.store_observation(
+            f"{self.name} says: {message}"
+        )
+
+    def get_team_context(self):
+        results = self.client.search("team communication", limit=10)
+        return [m.content for m in results.memories]
+
+# Create team
+client = MembrainClient()
+agents = [
+    Agent("Planner", client),
+    Agent("Executor", client),
+    Agent("Reviewer", client),
+]
+
+# Workflow
+agents[0].communicate("Starting project planning")
+agents[0].log_action("plan", "Created 5 tasks")
+
+# Executor reads context
+context = agents[1].get_team_context()
+print(f"Executor sees: {context}")
+
+agents[1].communicate("Executing task 1")
+agents[1].log_action("execute", "Completed task 1")
+
+# Reviewer checks
+agents[2].communicate("Reviewing work")
+review_context = agents[2].get_team_context()
+print(f"Reviewer sees {len(review_context)} messages")
+
+client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+class Agent {
+  constructor(name, memoryClient) {
+    this.name = name;
+    this.client = memoryClient;
+    this.client.storeEntity(this.name, "agent");
+  }
+
+  logAction(action, details) {
+    this.client.storeEvent(
+      `${this.name}_${action}`,
+      `${this.name}: ${details}`
+    );
+  }
+
+  communicate(message) {
+    this.client.storeObservation(`${this.name} says: ${message}`);
+  }
+
+  getTeamContext() {
+    const results = this.client.search("team communication", 10);
+    return results.memories.map(m => m.content);
+  }
+}
+
+// Create team
+const client = new MembrainClient();
+const agents = [
+  new Agent("Planner", client),
+  new Agent("Executor", client),
+  new Agent("Reviewer", client),
+];
+
+// Workflow
+agents[0].communicate("Starting project planning");
+agents[0].logAction("plan", "Created 5 tasks");
+
+// Executor reads context
+const context = agents[1].getTeamContext();
+console.log(`Executor sees: ${context}`);
+
+agents[1].communicate("Executing task 1");
+agents[1].logAction("execute", "Completed task 1");
+
+// Reviewer checks
+agents[2].communicate("Reviewing work");
+const reviewContext = agents[2].getTeamContext();
+console.log(`Reviewer sees ${reviewContext.length} messages`);
+
+client.close();
+```
+
+```rust Rust
+use membrain_ffi::MembrainClient;
+
+let client = MembrainClient::new().unwrap();
+
+// Agents communicate through shared memory
+client.store_entity("Planner", "agent").unwrap();
+client.store_observation("Planner says: Starting project planning").unwrap();
+client.store_event("Planner_plan", "Planner: Created 5 tasks").unwrap();
+
+// Another agent reads team context
+let context = client.search("team communication", 10).unwrap();
+println!("Team has {} messages", context.memories.len());
+```
+</CodeGroup>
+
+<Tip>
+  This pattern creates a natural workflow where agents communicate through observations and events, enabling asynchronous collaboration without tight coupling.
+</Tip>
+
+## Agent State Tracking
+
+Track agent goals, tasks, and learned patterns for stateful agent systems.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+
+client = MembrainClient()
+
+class StatefulAgent:
+    def __init__(self, agent_id, client):
+        self.agent_id = agent_id
+        self.client = client
+
+    def update_goal(self, goal):
+        result = self.client.store_goal(
+            f"{self.agent_id}: {goal}"
+        )
+        return result.id
+
+    def add_task(self, task):
+        self.client.store_task(f"{self.agent_id}: {task}")
+
+    def learn_pattern(self, pattern_name, description, ptype):
+        self.client.store_pattern(pattern_name, description, ptype)
+
+    def get_state(self):
+        goals = self.client.search(f"{self.agent_id} goal", limit=5)
+        tasks = self.client.search(f"{self.agent_id} task", limit=5)
+        return {
+            "goals": [m.content for m in goals.memories],
+            "tasks": [m.content for m in tasks.memories],
+        }
+
+# Agent lifecycle
+agent = StatefulAgent("Agent-001", client)
+
+agent.update_goal("Improve code quality")
+agent.add_task("Run linter on all files")
+agent.add_task("Fix type errors")
+agent.learn_pattern("singleton", "One instance pattern", "design")
+
+state = agent.get_state()
+print(f"Agent state: {state}")
+
+client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient();
+
+class StatefulAgent {
+  constructor(agentId, client) {
+    this.agentId = agentId;
+    this.client = client;
+  }
+
+  updateGoal(goal) {
+    const result = this.client.storeGoal(`${this.agentId}: ${goal}`);
+    return result.id;
+  }
+
+  addTask(task) {
+    this.client.storeTask(`${this.agentId}: ${task}`);
+  }
+
+  learnPattern(patternName, description, ptype) {
+    this.client.storePattern(patternName, description, ptype);
+  }
+
+  getState() {
+    const goals = this.client.search(`${this.agentId} goal`, 5);
+    const tasks = this.client.search(`${this.agentId} task`, 5);
+    return {
+      goals: goals.memories.map(m => m.content),
+      tasks: tasks.memories.map(m => m.content),
+    };
+  }
+}
+
+// Agent lifecycle
+const agent = new StatefulAgent("Agent-001", client);
+
+agent.updateGoal("Improve code quality");
+agent.addTask("Run linter on all files");
+agent.addTask("Fix type errors");
+agent.learnPattern("singleton", "One instance pattern", "design");
+
+const state = agent.getState();
+console.log(`Agent state:`, state);
+
+client.close();
+```
+
+```rust Rust
+use membrain_ffi::MembrainClient;
+
+let client = MembrainClient::new().unwrap();
+
+// Track agent goals and tasks
+client.store_goal("Agent-001: Improve code quality").unwrap();
+client.store_task("Agent-001: Run linter on all files").unwrap();
+client.store_task("Agent-001: Fix type errors").unwrap();
+client.store_pattern("singleton", "One instance pattern", "design").unwrap();
+
+// Query agent state
+let goals = client.search("Agent-001 goal", 5).unwrap();
+let tasks = client.search("Agent-001 task", 5).unwrap();
+println!("Goals: {}, Tasks: {}", goals.memories.len(), tasks.memories.len());
+```
+</CodeGroup>
+
+<Warning>
+  Agent state is stored as searchable memories. For critical state that must be precisely retrieved, consider using unique identifiers in the content and filtering results carefully.
+</Warning>
+
+## Advanced Patterns
+
+### Hierarchical Agent System
+
+Create manager agents that coordinate worker agents through task delegation.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+
+client = MembrainClient()
+
+class ManagerAgent:
+    def __init__(self, name, client):
+        self.name = name
+        self.client = client
+        self.workers = []
+
+    def assign_task(self, worker, task):
+        self.client.store_task(f"{worker}: {task}")
+        self.client.store_event("task_assigned",
+            f"{self.name} assigned task to {worker}")
+
+    def get_team_status(self):
+        results = self.client.search(f"task assigned {self.name}", limit=20)
+        return results.memories
+
+manager = ManagerAgent("ManagerBot", client)
+manager.assign_task("WorkerBot1", "Process data pipeline")
+manager.assign_task("WorkerBot2", "Generate reports")
+
+status = manager.get_team_status()
+print(f"Team has {len(status)} tasks")
+
+client.close()
+```
+</CodeGroup>
+
+### Collaborative Learning
+
+Enable multiple agents to contribute to a shared knowledge graph.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, MembrainGraph
+import random
+
+client = MembrainClient()
+graph = MembrainGraph()
+
+# Multiple agents contribute knowledge
+agents = ["Agent-A", "Agent-B", "Agent-C"]
+
+for agent in agents:
+    # Each agent stores observations
+    for i in range(5):
+        result = client.store_observation(
+            f"{agent} observed pattern {i}"
+        )
+        # Link in graph
+        emb = [random.random() for _ in range(16)]
+        graph.add_node(result.id, emb)
+
+# Any agent can query collective knowledge
+query = "observed patterns"
+results = client.search(query, limit=10)
+print(f"Collective learning: {len(results.memories)} observations")
+
+client.close()
+graph.close()
+```
+</CodeGroup>
+
+<Note>
+  Collaborative learning allows agents to benefit from each other's experiences, creating a system where the collective knowledge grows beyond what any individual agent could achieve.
+</Note>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Clear Agent Identities" icon="id-badge">
+    Use consistent agent IDs or names in all memory operations to enable filtering and context retrieval.
+  </Card>
+  <Card title="Event-Driven Communication" icon="bell">
+    Prefer events and observations over direct messaging for loose coupling between agents.
+  </Card>
+  <Card title="Hierarchical Organization" icon="sitemap">
+    Structure agents in teams with clear roles to avoid coordination conflicts.
+  </Card>
+  <Card title="Shared Vocabulary" icon="book-open">
+    Establish common terminology for skills, tasks, and entities to improve search accuracy.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="LLM Frameworks" icon="puzzle-piece" href="/integrations/langchain">
+    LangChain, LlamaIndex, AutoGen & more
+  </Card>
+  <Card title="Graph Memory" icon="diagram-project" href="/cookbooks/graph-memory">
+    Learn about graph-based operations
+  </Card>
+  <Card title="Advanced Patterns" icon="wand-magic-sparkles" href="/cookbooks/advanced-patterns">
+    Optimization and advanced techniques
+  </Card>
+  <Card title="Basic Usage" icon="book" href="/cookbooks/basic-usage">
+    Review fundamental operations
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/python-api">
+    Explore the complete API
+  </Card>
+</CardGroup>

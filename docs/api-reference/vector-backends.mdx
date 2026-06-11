@@ -1,0 +1,129 @@
+---
+title: Vector Backends
+description: Plug any vector database into Membrain via the VectorBackend interface
+icon: database
+---
+
+# Vector Backends
+
+Membrain ships with an in-process HNSW index (`MemscaleDB`) but lets you swap in any vector database via the `VectorBackend` interface. Use this when you need managed scale, replication, or to share a vector store across services.
+
+Built-in backends:
+
+| Backend | Python | JavaScript | Notes |
+|---|---|---|---|
+| `SimpleInMemoryBackend` | yes | yes | Zero-dep fallback for tests. |
+| `QdrantBackend` | yes | yes | Managed or self-hosted Qdrant. |
+| `ChromaBackend` | yes | yes | Local or HTTP Chroma. |
+| `PineconeBackend` | yes | yes | Pinecone serverless or pod. |
+| `MilvusBackend` | yes | yes | Milvus / Zilliz Cloud. |
+| `LanceDBBackend` | yes | yes | Embedded LanceDB. |
+| `FAISSBackend` | yes | **no** | Python-only; `faiss-cpu` is a native Python lib with no Node equivalent. |
+
+## Quickstart
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+from membrain.vector_backends import QdrantBackend
+
+backend = QdrantBackend(url="http://localhost:6333", collection="memories")
+client = MembrainClient(vector_backend=backend)
+
+client.store_fact("Alice prefers espresso over drip coffee", 0.9)
+results = client.search("what does Alice drink?", limit=5)
+```
+
+```javascript JavaScript
+import { MembrainClient, QdrantBackend } from "membrain";
+
+const backend = new QdrantBackend({ url: "http://localhost:6333", collection: "memories" });
+const client = new MembrainClient({ vectorBackend: backend });
+
+client.storeFact("Alice prefers espresso over drip coffee", 0.9);
+const results = client.search("what does Alice drink?", 5);
+```
+</CodeGroup>
+
+## Interface
+
+All backends implement the same five methods:
+
+```python
+class VectorBackend(ABC):
+    def store(self, memory_id, embedding, metadata) -> None
+    def search(self, query_embedding, limit, filters=None) -> list[(id, score, metadata)]
+    def delete(self, memory_id) -> bool
+    def count(self) -> int
+    def health_check(self) -> bool
+    def get_capabilities(self) -> dict    # supports_metadata_filtering, supports_hybrid_search, max_dimension
+    def close(self) -> None               # optional
+```
+
+Scores must be in `[0.0, 1.0]` with higher meaning more similar.
+
+## Choosing a backend
+
+| Need | Use |
+|---|---|
+| Start fast, no infra | `SimpleInMemoryBackend` or default HNSW |
+| Managed + free tier | `QdrantBackend`, `ChromaBackend` |
+| Largest ecosystem | `PineconeBackend` |
+| High-throughput self-hosted | `MilvusBackend` |
+| Embedded, no server | `LanceDBBackend` |
+| Python GPU FAISS | `FAISSBackend` (Python only) |
+
+## Custom backends
+
+Subclass `VectorBackend` to wrap anything with a KNN API:
+
+<CodeGroup>
+```python Python
+from membrain.vector_backends import VectorBackend
+
+class RedisVectorBackend(VectorBackend):
+    def __init__(self, redis_url): ...
+    def store(self, memory_id, embedding, metadata): ...
+    def search(self, query_embedding, limit, filters=None): ...
+    def delete(self, memory_id): ...
+    def count(self): ...
+    def health_check(self): return True
+    def get_capabilities(self):
+        return {"supports_metadata_filtering": True, "supports_hybrid_search": False, "max_dimension": 4096}
+
+client = MembrainClient(vector_backend=RedisVectorBackend(redis_url="..."))
+```
+
+```javascript JavaScript
+import { VectorBackend, MembrainClient } from "membrain";
+
+class RedisVectorBackend extends VectorBackend {
+  async store(memoryId, embedding, metadata) { /* ... */ }
+  async search(queryEmbedding, limit, filters) { /* returns [{id, score, metadata}] */ }
+  async delete(memoryId) { /* ... */ }
+  async count() { /* ... */ }
+  async healthCheck() { return true; }
+  getCapabilities() {
+    return { supports_metadata_filtering: true, supports_hybrid_search: false, max_dimension: 4096 };
+  }
+}
+```
+</CodeGroup>
+
+## Backend configs
+
+Each built-in backend takes provider-specific config. See the integration page for details.
+
+| Backend | Integration guide |
+|---|---|
+| Qdrant | [/integrations/qdrant](/integrations/qdrant) |
+| Chroma | [/integrations/chromadb](/integrations/chromadb) |
+| Pinecone | [/integrations/pinecone](/integrations/pinecone) |
+| Milvus | [/integrations/milvus](/integrations/milvus) |
+| LanceDB | [/integrations/lancedb](/integrations/lancedb) |
+| FAISS | [/integrations/faiss](/integrations/faiss) (Python) |
+
+## See also
+
+- [MemscaleDB overview](/memscaledb/overview) — built-in Rust-native index.
+- [Client API](/api-reference/client) — initializing with a backend.

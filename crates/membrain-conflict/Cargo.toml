@@ -1,0 +1,26 @@
+[package]
+name = "membrain-conflict"
+version.workspace = true
+edition.workspace = true
+description = "LLM-based conflict resolution, entity extraction, and memory evolution for Membrain"
+
+[dependencies]
+membrain-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tokio-test = { workspace = true }
+membrain-test-utils = { workspace = true, features = ["conflict", "http-server"] }
+anyhow = { workspace = true }
+proptest = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,449 @@
+---
+title: Chatbot with Memory
+description: Build a conversational AI with persistent memory
+icon: comments
+---
+
+# Build a Chatbot with Persistent Memory
+
+Learn how to create a chatbot that remembers conversations across sessions using Membrain.
+
+## What You'll Build
+
+A chatbot that:
+- Remembers past conversations
+- Learns user preferences
+- Retrieves relevant context automatically
+- Maintains personality and consistency
+
+## Prerequisites
+
+<CodeGroup>
+```bash Python
+pip install membrain openai
+```
+
+```bash JavaScript
+npm install membrain openai
+```
+</CodeGroup>
+
+## Step 1: Basic Setup
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+from openai import OpenAI
+import os
+
+# Initialize
+memory = MembrainClient()
+llm = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def chat(user_message):
+    # Retrieve relevant conversation history
+    context = memory.search(user_message, limit=5, memory_type="event")
+    history = "\n".join([m.content for m in context.memories])
+
+    # Build prompt with memory
+    system_prompt = f"""You are a helpful assistant.
+
+Previous conversation context:
+{history}
+
+Remember user preferences and past discussions."""
+
+    # Generate response
+    response = llm.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ]
+    )
+
+    assistant_reply = response.choices[0].message.content
+
+    # Store conversation for future reference
+    memory.store_event("user_message", user_message)
+    memory.store_event("assistant_message", assistant_reply)
+
+    return assistant_reply
+
+# Example usage
+print(chat("My name is Alice and I love Python programming"))
+print(chat("What's my name?"))  # Bot remembers: "Alice"
+print(chat("What language do I prefer?"))  # Bot remembers: "Python"
+
+memory.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+import OpenAI from 'openai';
+
+// Initialize
+const memory = new MembrainClient();
+const llm = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+async function chat(userMessage) {
+    // Retrieve relevant conversation history
+    const context = memory.search(userMessage, 5, 'event');
+    const history = context.memories.map(m => m.content).join('\n');
+
+    // Build prompt with memory
+    const systemPrompt = `You are a helpful assistant.
+
+Previous conversation context:
+${history}
+
+Remember user preferences and past discussions.`;
+
+    // Generate response
+    const response = await llm.chat.completions.create({
+        model: 'gpt-4',
+        messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage }
+        ]
+    });
+
+    const assistantReply = response.choices[0].message.content;
+
+    // Store conversation for future reference
+    memory.storeEvent('user_message', userMessage);
+    memory.storeEvent('assistant_message', assistantReply);
+
+    return assistantReply;
+}
+
+// Example usage
+console.log(await chat('My name is Alice and I love Python programming'));
+console.log(await chat("What's my name?"));  // Bot remembers: "Alice"
+console.log(await chat('What language do I prefer?'));  // Bot remembers: "Python"
+
+memory.close();
+```
+</CodeGroup>
+
+## Step 2: Track User Preferences
+
+Add automatic preference tracking:
+
+<CodeGroup>
+```python Python
+def extract_and_store_preferences(user_message, assistant_reply):
+    """Extract preferences from conversation"""
+
+    # Use LLM to extract preferences
+    extraction_prompt = f"""Extract user preferences from this conversation:
+User: {user_message}
+Assistant: {assistant_reply}
+
+If you find preferences, list them. Otherwise, say "none".
+Format: [subject]: [preference]"""
+
+    response = llm.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": extraction_prompt}]
+    )
+
+    preferences_text = response.choices[0].message.content
+
+    if "none" not in preferences_text.lower():
+        # Store as observation
+        memory.store_observation(f"User preference: {preferences_text}")
+        return True
+    return False
+
+def chat_with_preferences(user_message):
+    # Get context
+    context = memory.search(user_message, limit=5)
+    history = "\n".join([m.content for m in context.memories])
+
+    system_prompt = f"""You are a helpful assistant.
+
+User's known preferences and past context:
+{history}
+
+Personalize your response based on their preferences."""
+
+    response = llm.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ]
+    )
+
+    assistant_reply = response.choices[0].message.content
+
+    # Store conversation
+    memory.store_event("user_message", user_message)
+    memory.store_event("assistant_message", assistant_reply)
+
+    # Extract and store preferences
+    extract_and_store_preferences(user_message, assistant_reply)
+
+    return assistant_reply
+
+# Example
+print(chat_with_preferences("I prefer concise explanations"))
+print(chat_with_preferences("Explain async programming"))
+# Bot gives concise answer based on stored preference
+```
+</CodeGroup>
+
+## Step 3: Multi-Session Conversations
+
+Handle conversations across multiple sessions:
+
+<CodeGroup>
+```python Python
+import uuid
+
+class ChatSession:
+    def __init__(self, user_id):
+        self.user_id = user_id
+        self.session_id = str(uuid.uuid4())
+        self.memory = MembrainClient()
+        self.llm = OpenAI()
+
+    def chat(self, message):
+        # Search for user-specific context
+        query = f"user:{self.user_id} {message}"
+        context = self.memory.search(query, limit=10)
+
+        # Separate recent vs old memories
+        recent = [m for m in context.memories if "session" in m.content]
+        background = [m for m in context.memories if "preference" in m.content or "fact" in m.content]
+
+        system_prompt = f"""You are a helpful assistant.
+
+User background:
+{chr(10).join([m.content for m in background])}
+
+Recent conversation:
+{chr(10).join([m.content for m in recent[-5:]])}
+
+Remember this is user {self.user_id}."""
+
+        response = self.llm.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": message}
+            ]
+        )
+
+        reply = response.choices[0].message.content
+
+        # Store with user and session tags
+        self.memory.store_event(
+            "user_message",
+            f"user:{self.user_id} session:{self.session_id} {message}"
+        )
+        self.memory.store_event(
+            "assistant_message",
+            f"user:{self.user_id} session:{self.session_id} {reply}"
+        )
+
+        return reply
+
+    def close(self):
+        self.memory.close()
+
+# Usage across sessions
+session1 = ChatSession("alice")
+print(session1.chat("I'm learning Rust"))
+session1.close()
+
+# Later, new session
+session2 = ChatSession("alice")
+print(session2.chat("What was I learning?"))  # Remembers: "Rust"
+session2.close()
+```
+</CodeGroup>
+
+## Step 4: Context-Aware Responses
+
+Improve responses with semantic memory:
+
+<CodeGroup>
+```python Python
+def contextual_chat(user_message):
+    # Search multiple memory types
+    conversational_context = memory.search(user_message, limit=5, memory_type="event")
+    factual_context = memory.search(user_message, limit=3, memory_type="fact")
+    preferences = memory.search("user preference", limit=5, memory_type="observation")
+
+    # Build rich context
+    system_prompt = f"""You are a helpful assistant.
+
+User's preferences:
+{chr(10).join([p.content for p in preferences.memories])}
+
+Relevant facts from previous discussions:
+{chr(10).join([f.content for f in factual_context.memories])}
+
+Recent conversation:
+{chr(10).join([c.content for c in conversational_context.memories])}
+
+Provide a personalized, context-aware response."""
+
+    response = llm.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ]
+    )
+
+    return response.choices[0].message.content
+```
+</CodeGroup>
+
+## Complete Example: Production Chatbot
+
+<CodeGroup>
+```python Python
+class ProductionChatbot:
+    def __init__(self, user_id):
+        self.user_id = user_id
+        self.memory = MembrainClient()
+        self.llm = OpenAI()
+        self.session_id = str(uuid.uuid4())
+
+    def chat(self, message):
+        # Retrieve multi-layered context
+        context = self._get_context(message)
+
+        # Generate response
+        response = self._generate_response(message, context)
+
+        # Store conversation and learn
+        self._store_conversation(message, response)
+        self._learn_from_conversation(message, response)
+
+        return response
+
+    def _get_context(self, message):
+        """Retrieve relevant context"""
+        return {
+            'conversation': self.memory.search(
+                f"user:{self.user_id} {message}",
+                limit=5,
+                memory_type="event"
+            ).memories,
+            'preferences': self.memory.search(
+                f"user:{self.user_id} preference",
+                limit=3,
+                memory_type="observation"
+            ).memories,
+            'facts': self.memory.search(
+                message,
+                limit=3,
+                memory_type="fact"
+            ).memories
+        }
+
+    def _generate_response(self, message, context):
+        """Generate context-aware response"""
+        system_prompt = f"""You are a helpful assistant for {self.user_id}.
+
+Their preferences:
+{chr(10).join([p.content for p in context['preferences']])}
+
+Relevant knowledge:
+{chr(10).join([f.content for f in context['facts']])}
+
+Recent conversation:
+{chr(10).join([c.content for c in context['conversation'][-5:]])}"""
+
+        response = self.llm.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": message}
+            ]
+        )
+
+        return response.choices[0].message.content
+
+    def _store_conversation(self, message, response):
+        """Store conversation in memory"""
+        prefix = f"user:{self.user_id} session:{self.session_id}"
+        self.memory.store_event("user_msg", f"{prefix} {message}")
+        self.memory.store_event("assistant_msg", f"{prefix} {response}")
+
+    def _learn_from_conversation(self, message, response):
+        """Extract and store learnings"""
+        # Extract facts
+        if "?" not in message:  # User stated something
+            self.memory.store_fact(f"{self.user_id}: {message}", 0.7)
+
+        # Detect preferences (simplified)
+        preference_indicators = ["prefer", "like", "love", "hate", "dislike"]
+        if any(word in message.lower() for word in preference_indicators):
+            self.memory.store_observation(
+                f"user:{self.user_id} preference: {message}"
+            )
+
+    def close(self):
+        self.memory.close()
+
+# Usage
+bot = ProductionChatbot("alice")
+print(bot.chat("I prefer short, direct answers"))
+print(bot.chat("Explain async/await"))  # Gets short answer
+print(bot.chat("I'm working on a web API project"))
+print(bot.chat("What should I use for my project?"))  # Remembers web API context
+bot.close()
+```
+</CodeGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Limit Context Size">
+    Don't overload the LLM with too much history:
+    - Use semantic search to get only relevant memories
+    - Limit to 5-10 most relevant items
+    - Prioritize recent over old
+  </Accordion>
+
+  <Accordion title="Store Structured Information">
+    Tag memories for better retrieval:
+    - Include user_id in all memories
+    - Tag by session_id for temporal grouping
+    - Use clear prefixes: "user:", "preference:", "fact:"
+  </Accordion>
+
+  <Accordion title="Learn Continuously">
+    Extract insights from every conversation:
+    - Detect preferences automatically
+    - Store factual statements
+    - Track topics of interest
+  </Accordion>
+
+  <Accordion title="Handle Privacy">
+    Respect user privacy:
+    - Allow users to delete their data
+    - Separate user memories by ID
+    - Be transparent about what you remember
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RAG System" icon="database" href="/cookbooks/rag-system">
+    Build retrieval-augmented generation
+  </Card>
+  <Card title="Multi-Agent" icon="users" href="/cookbooks/multi-agent">
+    Coordinate multiple chatbots
+  </Card>
+  <Card title="LangChain Integration" icon="link" href="/integrations/langchain">
+    Use with LangChain
+  </Card>
+</CardGroup>

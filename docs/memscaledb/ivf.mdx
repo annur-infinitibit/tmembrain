@@ -1,0 +1,273 @@
+---
+title: MemscaleDB IVF
+description: Inverted file index with Voronoi cell partitioning for fast approximate search on large datasets
+icon: table-cells
+---
+
+# MemscaleDB IVF
+
+MemscaleDB's IVF (Inverted File) index partitions vectors into Voronoi cells using k-means clustering. At query time, only the closest cells are searched, trading a small amount of recall for significant speed gains. Inspired by [FAISS IVFFlat](https://github.com/facebookresearch/faiss), this approach scales well to datasets with hundreds of thousands to millions of vectors.
+
+<CardGroup cols={2}>
+  <Card title="Partition-Based Search" icon="table-cells" color="#10b981">
+    K-means partitioning searches only the most relevant cells, skipping the rest.
+  </Card>
+  <Card title="Tunable Recall" icon="sliders">
+    Adjust `nprobe` to trade latency for recall. More probes = higher recall.
+  </Card>
+  <Card title="Incremental Updates" icon="plus">
+    Add and remove vectors after the initial build without retraining centroids.
+  </Card>
+  <Card title="SIMD Acceleration" icon="microchip">
+    Within-cell distance computation uses AVX2/SSE2 SIMD.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+1. **Training**: Balanced k-means clusters the input vectors into `num_cells` centroids.
+2. **Assignment**: Each vector is assigned to its nearest centroid and stored in that cell's inverted list.
+3. **Query routing**: For each query, distances to all centroids are computed and the `nprobe` closest cells are selected.
+4. **Within-cell search**: A linear scan within the selected cells finds the top-k nearest neighbors.
+5. **Result merging**: Results from all probed cells are merged into a single ranked list.
+
+## Usage
+
+The IVF index requires an initial batch of training vectors. Use the `build()` class method to create it.
+
+<CodeGroup>
+```python Python
+import uuid
+from membrain import MembrainIvfIndex
+
+# Prepare training data -- IDs must be UUID strings
+ids = [str(uuid.uuid4()) for _ in range(1000)]
+vectors = [[0.1, 0.2, ...] for _ in range(1000)]  # float arrays, all same dimension
+
+# Build the IVF index -- dimension is the first positional argument
+index = MembrainIvfIndex.build(
+    dimension=768,
+    ids=ids,
+    vectors=vectors,
+    config={
+        "num_cells": 32,
+        "nprobe": 4,
+    },
+)
+
+# Search
+results = index.search(query_embedding, k=10)
+for r in results:
+    print(f"{r['id']}  distance={r['distance']:.4f}")
+
+# Add more vectors after build
+index.add(str(uuid.uuid4()), new_embedding)
+
+index.close()
+```
+
+```javascript JavaScript
+import { MembrainIvfIndex } from "membrain";
+
+// Build the IVF index
+const index = MembrainIvfIndex.build(ids, vectors, {
+  dimension: 768,
+  num_cells: 32,
+  nprobe: 4,
+});
+
+// Search
+const results = index.search(queryEmbedding, 10);
+for (const r of results) {
+  console.log(`${r.id}  distance=${r.distance.toFixed(4)}`);
+}
+
+// Add more vectors after build
+index.add(crypto.randomUUID(), newEmbedding);
+
+index.close();
+```
+
+```rust Rust
+use memscaledb::{IvfIndex, IvfConfig, VectorIndex};
+
+let config = IvfConfig {
+    num_cells: 32,
+    nprobe: 4,
+    ..IvfConfig::default()
+};
+
+// Build from training vectors
+let vectors_refs: Vec<&[f32]> = vectors.iter().map(|v| v.as_slice()).collect();
+let mut index = IvfIndex::build(&ids, &vectors_refs, 768, config)?;
+
+// Search
+let results = index.search(&query_embedding, 10)?;
+
+// Incremental add
+index.add(VectorId::new(), &new_embedding)?;
+```
+</CodeGroup>
+
+## Configuration
+
+| Parameter | Default | Description |
+|---|---|---|
+| `dimension` | **required** | Vector dimension (must match your embedding model) |
+| `num_cells` | 64 | Number of Voronoi cells (nlist). More cells = smaller partitions but more centroid overhead |
+| `nprobe` | 8 | Number of cells to search per query. Higher = better recall, slower search |
+| `distance_metric` | `Cosine` | Distance function: `Cosine`, `Euclidean`, `DotProduct`, `Manhattan`, `Chebyshev` |
+| `kmeans_iterations` | 25 | Maximum k-means iterations for centroid training |
+| `training_sample_size` | 50,000 | Maximum vectors sampled for k-means training |
+| `seed` | 42 | Seed for deterministic k-means initialization |
+| `cache_config.capacity` | 1024 | Maximum number of cached query results |
+| `cache_config.enabled` | true | Whether the LRU query cache is active |
+
+### Tuning Guidelines
+
+**nprobe** controls the recall-latency tradeoff:
+
+| nprobe | Recall | Latency | Use case |
+|---|---|---|---|
+| 1 | ~60-70% | Fastest | High-throughput, low-latency workloads |
+| 4-8 (default) | ~90-95% | Balanced | General-purpose search |
+| `num_cells` | 100% | Slowest (equivalent to flat scan) | When exact results are required |
+
+**num_cells** should be chosen based on dataset size:
+
+| Dataset size | Recommended num_cells |
+|---|---|
+| 10k-50k vectors | 8-16 |
+| 50k-200k vectors | 16-64 |
+| 200k-1M vectors | 64-256 |
+| Over 1M vectors | 256-1024 |
+
+<Note>
+  A good rule of thumb: set `num_cells` to roughly `sqrt(N)` where N is the number of vectors, and `nprobe` to roughly `sqrt(num_cells)`.
+</Note>
+
+## Operations
+
+### Filtered Search
+
+Restrict results to a subset of vector IDs. The filter is applied during the within-cell scan.
+
+<CodeGroup>
+```python Python
+results = index.search_with_filter(
+    query_embedding, k=10,
+    allowed_ids=[ids[0], ids[2], ids[4]],
+)
+```
+
+```javascript JavaScript
+const results = index.searchWithFilter(
+  queryEmbedding, 10,
+  [ids[0], ids[2], ids[4]],
+);
+```
+</CodeGroup>
+
+### Batch Search
+
+Run multiple queries in parallel.
+
+<CodeGroup>
+```python Python
+queries = [query1, query2, query3]
+batch_results = index.batch_search(queries, k=10)
+```
+
+```javascript JavaScript
+const batchResults = index.batchSearch([query1, query2, query3], 10);
+```
+</CodeGroup>
+
+### Observability
+
+<CodeGroup>
+```python Python
+metrics = index.metrics()
+print(f"Searches: {metrics['searches']}")
+print(f"Distance ops: {metrics['distance_computations']}")
+```
+
+```javascript JavaScript
+const m = index.metrics();
+console.log(`Searches: ${m.searches}`);
+console.log(`Distance ops: ${m.distance_computations}`);
+```
+</CodeGroup>
+
+## Concurrent Access
+
+`ConcurrentIvfIndex` allows multiple threads to search and insert vectors simultaneously. Build the index from training data once, then share it safely across threads.
+
+<CodeGroup>
+```python Python
+import threading
+import uuid
+from membrain import ConcurrentIvfIndex
+
+ids = [str(uuid.uuid4()) for _ in range(1000)]
+vectors = [[float(i % 64) / 64.0] * 64 for i in range(1000)]
+
+index = ConcurrentIvfIndex.build(ids, vectors, dimension=64)
+
+def worker():
+    results = index.search([0.5] * 64, k=10)
+    assert len(results) > 0
+
+threads = [threading.Thread(target=worker) for _ in range(8)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+index.close()
+```
+
+```javascript JavaScript
+import { ConcurrentIvfIndex } from "membrain";
+
+const ids = Array.from({ length: 1000 }, () => crypto.randomUUID());
+const vectors = Array.from({ length: 1000 }, (_, i) =>
+  Array(64).fill((i % 64) / 64.0)
+);
+
+const index = ConcurrentIvfIndex.build(ids, vectors, 64);
+const results = index.search(Array(64).fill(0.5), 10);
+console.log(`Found ${results.length} results`);
+index.close();
+```
+</CodeGroup>
+
+See the [Concurrent Indices](/memscaledb/concurrent) page for a full reference.
+
+## When to Use MemscaleDB IVF
+
+| Scenario | IVF Index? |
+|---|---|
+| 10k-1M vectors, need fast search | Yes -- partitioning reduces search scope |
+| Batch ingestion of large datasets | Yes -- k-means training amortizes over the full dataset |
+| Need exact recall (100%) | Set `nprobe = num_cells`, or use [Flat](/memscaledb/flat) |
+| Very small datasets (under 10k) | No -- use [Flat](/memscaledb/flat) for simpler exact search |
+| Need graph-based search | No -- use [HNSW](/memscaledb/hnsw) or [Vamana](/memscaledb/vamana) |
+| Frequent centroid retraining | No -- centroids are fixed at build time. Incremental adds may degrade balance over time |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MemscaleDB Flat" icon="bullseye-arrow" href="/memscaledb/flat">
+    Exact brute-force search for small datasets and accuracy baselines
+  </Card>
+  <Card title="MemscaleDB HNSW" icon="bolt" href="/memscaledb/hnsw">
+    Graph-based approximate search with dynamic inserts
+  </Card>
+  <Card title="MemscaleDB Sharded" icon="cubes" href="/memscaledb/sharded">
+    Multi-shard HNSW for even larger datasets
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Comparison of all supported vector backends
+  </Card>
+</CardGroup>

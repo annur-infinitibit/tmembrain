@@ -1,0 +1,174 @@
+---
+title: CrewAI
+description: Using Membrain with CrewAI for role-based crews with shared memory
+icon: users
+---
+
+# CrewAI
+
+CrewAI organises agents into role-based **Crews** that collaborate on shared **Tasks**. Membrain gives every agent in the crew access to the same persistent memory, so findings and decisions survive across task boundaries.
+
+## Crew with Shared Memory
+
+A three-role crew — Researcher, Architect, Writer — all share the same `search_memory` and `save_to_memory` tools backed by one Membrain instance.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+from crewai import Agent, Crew, Process, Task
+from crewai.tools import tool
+
+memory = MembrainClient()
+
+# --- Seed prior knowledge that the crew can draw on ---
+memory.store_fact("Cloud computing reduces upfront infrastructure costs.", 0.9)
+memory.store_fact("Kubernetes orchestrates containerised workloads at scale.", 0.9)
+memory.store_fact("Terraform enables infrastructure-as-code provisioning.", 0.9)
+
+# --- Define a tool that exposes Membrain to every agent ---
+@tool("search_memory")
+def search_memory(query: str) -> str:
+    """Search persistent project memory for relevant facts, decisions, and notes."""
+    results = memory.search(query, limit=5)
+    if not results.memories:
+        return "No relevant memory found."
+    return "\n".join([f"- {m.content}" for m in results.memories])
+
+@tool("save_to_memory")
+def save_to_memory(content: str) -> str:
+    """Persist a fact or decision to shared project memory."""
+    memory.store_fact(content, 0.85)
+    return f"Saved: {content}"
+
+shared_tools = [search_memory, save_to_memory]
+
+# --- Define crew roles ---
+researcher = Agent(
+    role="Cloud Researcher",
+    goal="Research cloud-native patterns and store findings in memory.",
+    backstory="You are an expert researcher. Always check memory first, then store new findings.",
+    tools=shared_tools,
+)
+
+architect = Agent(
+    role="Solutions Architect",
+    goal="Design an architecture based on research findings stored in memory.",
+    backstory="You design cloud architectures. Pull context from memory before proposing designs.",
+    tools=shared_tools,
+)
+
+writer = Agent(
+    role="Technical Writer",
+    goal="Produce a concise summary of the research and architecture decisions.",
+    backstory="You write clear technical summaries. Review memory for all prior findings and decisions.",
+    tools=shared_tools,
+)
+
+# --- Define tasks wired to agents ---
+research_task = Task(
+    description="Research cloud-native deployment patterns. Check memory for existing knowledge first.",
+    agent=researcher,
+)
+
+design_task = Task(
+    description="Design a deployment architecture using the research findings. Save key decisions to memory.",
+    agent=architect,
+)
+
+summary_task = Task(
+    description="Write a summary of all research and architectural decisions. Pull everything from memory.",
+    agent=writer,
+)
+
+# --- Assemble and run the crew ---
+crew = Crew(
+    agents=[researcher, architect, writer],
+    tasks=[research_task, design_task, summary_task],
+    process=Process.sequential,
+)
+
+result = crew.kickoff()
+print(result)
+
+memory.close()
+```
+</CodeGroup>
+
+## Task-Scoped Memory
+
+Store intermediate outputs per-task so later tasks have precise, labelled context. Labels act as a lightweight task-output bus — each agent stores and retrieves exactly the slice it needs.
+
+```python
+from membrain import MembrainClient
+from crewai import Agent, Crew, Process, Task
+from crewai.tools import tool
+
+memory = MembrainClient()
+
+@tool("store_task_output")
+def store_task_output(label_and_content: str) -> str:
+    """Store a labelled task output. Format: 'label: content'."""
+    label, _, content = label_and_content.partition(": ")
+    memory.store_event(label.strip(), content.strip())
+    return f"Stored [{label.strip()}]"
+
+@tool("get_task_output")
+def get_task_output(label: str) -> str:
+    """Retrieve the most recent output for a given task label."""
+    results = memory.search(label, limit=3)
+    return "\n".join([m.content for m in results.memories]) or "Nothing stored yet."
+
+tools = [store_task_output, get_task_output]
+
+analyst = Agent(
+    role="Data Analyst",
+    goal="Analyse the provided dataset and store key metrics.",
+    tools=tools,
+)
+
+reporter = Agent(
+    role="Reporter",
+    goal="Retrieve the analyst's metrics and produce a report.",
+    tools=tools,
+)
+
+analyse_task = Task(
+    description="Analyse the dataset and store results with label 'analysis'.",
+    agent=analyst,
+)
+
+report_task = Task(
+    description="Retrieve output labelled 'analysis' and write a report.",
+    agent=reporter,
+)
+
+crew = Crew(
+    agents=[analyst, reporter],
+    tasks=[analyse_task, report_task],
+    process=Process.sequential,
+)
+
+print(crew.kickoff())
+memory.close()
+```
+
+<Tip>
+  Labelled events act as a lightweight task-output bus. Each agent can store and retrieve exactly the slice of context it needs without scanning the entire memory.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="AutoGen" icon="users" href="/integrations/autogen">
+    Conversation-driven multi-agent systems
+  </Card>
+  <Card title="LangGraph" icon="diagram-project" href="/integrations/langgraph">
+    Graph-based agent state machines
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Pluggable vector backends
+  </Card>
+  <Card title="Multi-Agent Systems" icon="users" href="/cookbooks/multi-agent">
+    Framework-agnostic multi-agent patterns
+  </Card>
+</CardGroup>

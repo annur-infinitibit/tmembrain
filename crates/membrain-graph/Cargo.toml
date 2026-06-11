@@ -1,0 +1,26 @@
+[package]
+name = "membrain-graph"
+version.workspace = true
+edition.workspace = true
+description = "Graph-based neural memory layer with GRU temporal state and multi-hop message passing"
+
+[dependencies]
+membrain-core = { workspace = true }
+ndarray = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+parking_lot = "0.12"
+rand = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tokio = { workspace = true }
+approx = "0.5"
+
+[lints]
+workspace = true

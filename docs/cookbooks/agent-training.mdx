@@ -1,0 +1,216 @@
+---
+title: Agent Training with CBR
+description: Train agents to learn from their own execution history
+icon: dumbbell
+---
+
+# Agent Training with Case-Based Reasoning
+
+This cookbook walks through the full cycle of building an agent that learns from experience using Membrain's case-based reasoning system.
+
+## Overview
+
+The training pipeline has four stages:
+
+<Steps>
+  <Step title="Collect Experiences">
+    Run the agent on tasks and store each execution as a case with a reward signal.
+  </Step>
+  <Step title="Accumulate Training Data">
+    For each execution, record which retrieved cases were helpful and which were not.
+  </Step>
+  <Step title="Train the Neural Retriever">
+    Train a classifier that learns to select the most relevant cases for a given query.
+  </Step>
+  <Step title="Deploy the Improved Agent">
+    Swap the retriever to use the trained model and continue the cycle.
+  </Step>
+</Steps>
+
+## Prerequisites
+
+```bash
+pip install membrain torch transformers
+```
+
+## Step 1: Set Up the Agent
+
+```python Python
+from membrain import MembrainClient
+from membrain.cbr import NonParametricRetriever, CasePromptBuilder
+from membrain.agent import MembrainAgent
+
+
+def call_llm(messages: list[dict[str, str]]) -> str:
+    """Replace with your LLM provider (OpenAI, Anthropic, etc.)."""
+    import openai
+    response = openai.chat.completions.create(
+        model="gpt-4o",
+        messages=messages,
+    )
+    return response.choices[0].message.content
+
+
+client = MembrainClient()
+agent = MembrainAgent(
+    client=client,
+    llm_callable=call_llm,
+)
+```
+
+## Step 2: Run the Agent and Collect Data
+
+```python Python
+# Define a judge function that evaluates correctness
+def judge(query: str, output: str, results: list) -> bool:
+    """Simple judge -- replace with your evaluation logic."""
+    response = call_llm([
+        {"role": "system", "content": "Answer with only 'yes' or 'no'."},
+        {"role": "user", "content": f"Query: {query}\nAnswer: {output}\nIs this correct?"},
+    ])
+    return "yes" in response.lower()
+
+
+# Run on a batch of queries
+queries = [
+    "How do I set up CI/CD for a Python project?",
+    "What is the best way to handle database migrations?",
+    "How to implement rate limiting in an API?",
+]
+
+outputs = agent.run_batch(queries, judge_callable=judge)
+
+# Flush training data to disk
+agent.replay.flush_training_data()
+```
+
+## Step 3: Train the Neural Retriever
+
+Once you have accumulated enough training data (50+ examples recommended), train the classifier:
+
+```python Python
+from membrain.cbr.trainer import RetrieverTrainer
+
+trainer = RetrieverTrainer(
+    training_data_path="training_data.jsonl",
+    output_dir="./checkpoints",
+)
+
+result = trainer.train(
+    epochs=3,
+    batch_size=32,
+    learning_rate=2e-5,
+    warmup_ratio=0.06,
+    eval_every_steps=100,
+)
+
+print(f"Training complete:")
+print(f"  Best AUC: {result.best_metric:.4f}")
+print(f"  Final accuracy: {result.final_accuracy:.4f}")
+print(f"  Final F1: {result.final_f1:.4f}")
+print(f"  Samples: {result.training_samples} train, {result.validation_samples} val")
+```
+
+## Step 4: Deploy the Trained Retriever
+
+```python Python
+from membrain.cbr.parametric_retriever import ParametricRetriever
+
+trained_retriever = ParametricRetriever(
+    client=client,
+    checkpoint_path="./checkpoints/best.pt",
+)
+
+# Swap the retriever in the agent
+agent.replay.retriever = trained_retriever
+
+# Continue running -- now with improved case selection
+output = agent.run("How to set up monitoring for a microservice?")
+```
+
+## The Experience Replay Loop
+
+For continuous improvement, use the `ExperienceReplay` class directly:
+
+```python Python
+from membrain.cbr.experience_replay import ExperienceReplay
+
+replay = ExperienceReplay(
+    client=client,
+    retriever=trained_retriever,
+    training_data_path="training_data.jsonl",
+)
+
+# After each execution, record the experience
+cases = trained_retriever.retrieve("my problem")
+all_cases = cases.positive_cases + cases.negative_cases
+
+replay.record_execution(
+    problem="Deploy microservice with health checks",
+    plan="Add /health endpoint, configure k8s liveness probe",
+    outcome="Service deployed with automatic restart on failure",
+    reward=1.0,
+    query="deploy microservice health checks",
+    retrieved_cases=all_cases,
+    is_correct=True,
+)
+
+# Periodically retrain (e.g., every 100 executions)
+if replay.execution_count >= 100:
+    result = replay.retrain(output_dir="./checkpoints-v2")
+```
+
+## Training Configuration
+
+The trainer supports several configuration options:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `epochs` | 3 | Number of training epochs |
+| `batch_size` | 32 | Training batch size |
+| `learning_rate` | 2e-5 | Peak learning rate |
+| `weight_decay` | 0.01 | AdamW weight decay |
+| `warmup_ratio` | 0.06 | Fraction of steps for linear warmup |
+| `max_length` | 256 | Maximum token sequence length |
+| `gradient_clip` | 1.0 | Maximum gradient norm |
+| `mixed_precision` | False | Enable FP16 (requires CUDA) |
+| `eval_every_steps` | 500 | Evaluate every N steps |
+
+## Tips
+
+<AccordionGroup>
+  <Accordion title="How much training data do I need?">
+    Start with at least 50 examples for basic improvements. 500+ examples
+    will give more reliable results. The quality of the judge function
+    matters more than raw quantity.
+  </Accordion>
+
+  <Accordion title="When should I retrain?">
+    Retrain when you have accumulated 2-3x more data than the previous
+    training set. Diminishing returns start around 10,000 examples for
+    most domains.
+  </Accordion>
+
+  <Accordion title="Can I use a custom backbone model?">
+    Yes. Pass `backbone_model` to both `RetrieverTrainer` and
+    `ParametricRetriever`. Any sentence-transformer compatible model
+    from HuggingFace works.
+  </Accordion>
+
+  <Accordion title="How do I handle multiple domains?">
+    Store cases with domain tags using `CaseMemory.with_domain()` on the
+    Rust side, or filter by metadata in your retriever. You can also train
+    separate classifiers per domain.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Case-Based Reasoning" icon="brain" href="/features/case-based-reasoning">
+    Understand the CBR architecture
+  </Card>
+  <Card title="CBR API Reference" icon="code" href="/api-reference/cbr-api">
+    Full API documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,438 @@
+---
+title: Vector Databases
+description: Overview, comparison, configuration reference, and custom backend guide for Membrain vector backends
+icon: database
+---
+
+# Vector Databases
+
+Membrain's vector search is pluggable. Swap the backend that matches your scale and deployment without changing any application code.
+
+## Backends at a Glance
+
+<CardGroup cols={2}>
+  <Card title="MemscaleDB" icon="bolt" color="#10b981" href="/memscaledb/overview">
+    Built-in standalone vector database with six index types (HNSW, Flat, IVF, LSH, Vamana, Sharded), SIMD acceleration, PQ compression, and WAL persistence. No external service.
+  </Card>
+  <Card title="Qdrant" icon="server" color="#3b82f6" href="/integrations/qdrant">
+    Best for production at scale. Metadata filtering, hybrid search, distributed.
+  </Card>
+  <Card title="ChromaDB" icon="layers" color="#8b5cf6" href="/integrations/chromadb">
+    Python-native, designed for LLM apps. Easiest local persistent setup.
+  </Card>
+  <Card title="FAISS" icon="cpu" color="#f59e0b" href="/integrations/faiss">
+    Meta's similarity search library. GPU-accelerated, scales to billions of vectors.
+  </Card>
+  <Card title="Milvus" icon="server" color="#ef4444" href="/integrations/milvus">
+    Open-source cloud-scale vector database. GPU indexing, billions of vectors, distributed.
+  </Card>
+  <Card title="Pinecone" icon="cloud" color="#14b8a6" href="/integrations/pinecone">
+    Fully managed, serverless vector DB. Zero infrastructure, automatic scaling.
+  </Card>
+  <Card title="LanceDB" icon="hard-drive" color="#6366f1" href="/integrations/lancedb">
+    Embedded, disk-based vector database. No server, SQLite-like simplicity.
+  </Card>
+</CardGroup>
+
+---
+
+## Comparison
+
+| | MemscaleDB | Qdrant | ChromaDB | FAISS | Milvus | Pinecone | LanceDB |
+|---|---|---|---|---|---|---|---|
+| **Status** | Built-in | `pip install qdrant-client` | `pip install chromadb` | `pip install faiss-cpu` | `pip install pymilvus` | `pip install pinecone-client` | `pip install lancedb` |
+| **Server required** | No | Yes (Docker or cloud) | No (local) / Yes (server mode) | No | Yes (Docker or cloud) | No (managed) | No (embedded) |
+| **Index types** | [HNSW](/memscaledb/overview), [Flat](/memscaledb/flat), [IVF](/memscaledb/ivf), [LSH](/memscaledb/lsh), [Vamana](/memscaledb/vamana), [Sharded](/memscaledb/sharded) | HNSW | HNSW | Flat, IVF, HNSW, PQ | HNSW, IVF, Flat, DiskANN | Proprietary | IVF_PQ, Flat |
+| **Metadata filtering** | Post-filter | Excellent | Good | Wrapper-only | Excellent | Good | Good |
+| **Hybrid search** | Yes (via CompositeIndex) | Yes | No | No | Yes | No | No |
+| **Distance metrics** | Cosine, Euclidean, DotProduct, Manhattan, Chebyshev | Cosine, Euclidean, Dot | Cosine, L2, IP | L2, IP, Cosine | L2, IP, Cosine | Cosine, Euclidean, Dot | L2, Cosine, Dot |
+| **Typical scale** | Millions (single-process) | Millions | Millions | Billions | Billions | Millions | Millions |
+| **GPU support** | No | No | No | Yes | Yes | No | No |
+| **Distributed** | No | Yes | No | No | Yes | Yes | No |
+| **Persistence** | Native (graph serialization) | Native | Native | Manual | Native | Native | Native (disk) |
+| **Best for** | Single-process prod | Large prod / filtering | LLM apps | Research / large-scale | Large prod + ML | Zero-infra teams | Local-first / embedded |
+
+---
+
+## Configuration Reference
+
+All vector backend options can be set via the config dict **or** environment variables. Each backend's own page documents the keys it actually uses; these are the full set across all backends.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+import os
+
+client = MembrainClient(config={
+    "vector_db": {
+        "backend": "qdrant",                          # memscaledb | qdrant | chroma | faiss | milvus | pinecone | lancedb
+        "url": os.environ.get("VECTOR_DB_URL"),       # server URL (Qdrant / ChromaDB server mode / Milvus)
+        "api_key": os.environ.get("VECTOR_DB_API_KEY"),
+        "collection_name": "my_memories",
+        "dimension": 1536,                            # must match your embedding model
+        "metric": "cosine",                           # cosine | euclidean | dotproduct
+        "timeout_secs": 30,
+    }
+})
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient({
+  vector_db: {
+    backend: "qdrant",  // memscaledb | qdrant | chroma | faiss | milvus | pinecone
+    url: process.env.VECTOR_DB_URL,
+    api_key: process.env.VECTOR_DB_API_KEY,
+    collection_name: "my_memories",
+    dimension: 1536,
+    metric: "cosine",
+    timeout_secs: 30,
+  },
+});
+```
+
+```rust Rust
+use membrain_ffi::MembrainClient;
+use membrain_core::config::Config;
+
+// Use the built-in MemscaleDB (default)
+let client = MembrainClient::new().unwrap();
+
+// Custom configuration
+let config = Config::default();
+let client = MembrainClient::with_config(config).unwrap();
+```
+
+```bash Environment variables
+export MEMBRAIN_VECTOR_DB_BACKEND=qdrant
+export MEMBRAIN_VECTOR_DB_URL=http://localhost:6333
+export MEMBRAIN_VECTOR_DB_API_KEY=your-api-key
+export MEMBRAIN_VECTOR_DB_COLLECTION=membrain
+```
+</CodeGroup>
+
+### Embedding Dimension Quick Reference
+
+`dimension` must match the output size of the embedding model you use. Common values:
+
+| Model | Dimension |
+|---|---|
+| `text-embedding-ada-002` (OpenAI) | 1536 |
+| `text-embedding-3-small` (OpenAI) | 1536 |
+| `text-embedding-3-large` (OpenAI) | 3072 |
+| `all-MiniLM-L6-v2` (sentence-transformers) | 384 |
+| `all-mpnet-base-v2` (sentence-transformers) | 768 |
+| `e5-large-v2` | 1024 |
+| `bge-large-en-v1.5` | 1024 |
+
+<Warning>
+  A dimension mismatch will cause errors on the first insert or search. Double-check this value when switching embedding models.
+</Warning>
+
+---
+
+## Health Checks & Capabilities
+
+Every backend exposes the same introspection API. Call it on startup and wire it into your monitoring.
+
+```python
+from membrain import MembrainClient, QdrantBackend
+
+backend = QdrantBackend(url="http://localhost:6333")
+client = MembrainClient(vector_backend=backend)
+
+# --- liveness ---
+health = client.vector_backend_health()
+print(health)
+# {"backend": "qdrant", "status": "healthy"}
+
+# --- capability discovery ---
+caps = client.vector_backend_stats()
+print(caps["capabilities"])
+# {
+#   "supports_metadata_filtering": True,
+#   "supports_hybrid_search":      True,
+#   "supports_batch_operations":   True,
+#   "max_dimension":               65536
+# }
+
+client.close()
+```
+
+---
+
+## Writing a Custom Backend
+
+Any vector database can be plugged in by implementing the `VectorBackend` abstract base class. The interface is intentionally minimal — five required methods.
+
+```python
+from membrain import VectorBackend
+from typing import List, Tuple, Dict, Any, Optional
+
+class MyVectorBackend(VectorBackend):
+    def __init__(self, **config):
+        self.db = MyVectorDatabase(**config)
+
+    def store(
+        self,
+        memory_id: str,
+        embedding: List[float],
+        metadata: Dict[str, Any],
+    ) -> None:
+        self.db.insert(memory_id, embedding, metadata)
+
+    def search(
+        self,
+        query_embedding: List[float],
+        limit: int,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Tuple[str, float, Dict[str, Any]]]:
+        """Return list of (memory_id, score 0-1, metadata)."""
+        results = self.db.search(query_embedding, top_k=limit, filters=filters)
+        return [(r.id, r.similarity, r.metadata) for r in results]
+
+    def delete(self, memory_id: str) -> bool:
+        return self.db.delete(memory_id)
+
+    def count(self) -> int:
+        return self.db.count()
+
+    def health_check(self) -> bool:
+        try:
+            self.db.ping()
+            return True
+        except Exception:
+            return False
+
+    def get_capabilities(self) -> Dict[str, Any]:
+        return {
+            "supports_metadata_filtering": True,
+            "supports_hybrid_search": False,
+            "max_dimension": 4096,
+            "backend_name": "my_custom_backend",
+        }
+
+    def close(self) -> None:
+        self.db.close()
+
+
+# --- wire it in ---
+backend = MyVectorBackend(host="localhost", port=9000)
+client = MembrainClient(vector_backend=backend)
+```
+
+<Tip>
+  Metadata filtering and hybrid search are optional capabilities. Advertise them honestly in `get_capabilities()` so Membrain can route queries correctly.
+</Tip>
+
+---
+
+## Production Patterns
+
+### Fallback Chain
+
+Try the preferred backend first; fall back gracefully so the app never crashes on a missing service.
+
+```python
+import os
+from membrain import (
+    MembrainClient,
+    MilvusBackend,
+    QdrantBackend,
+    PineconeBackend,
+    SimpleInMemoryBackend,
+)
+
+def create_backend():
+    # 1. Production: Milvus (self-hosted or Zilliz Cloud)
+    try:
+        backend = MilvusBackend(
+            uri=os.environ.get("MILVUS_URI", "http://localhost:19530"),
+            token=os.environ.get("MILVUS_TOKEN"),
+            dimension=1536,
+        )
+        if backend.health_check():
+            return backend
+    except Exception:
+        pass
+
+    # 2. Fallback: Qdrant (self-hosted or cloud)
+    try:
+        backend = QdrantBackend(
+            url=os.environ.get("QDRANT_URL", "http://localhost:6333"),
+            api_key=os.environ.get("QDRANT_API_KEY"),
+            dimension=1536,
+        )
+        if backend.health_check():
+            return backend
+    except Exception:
+        pass
+
+    # 3. Fallback: Pinecone (managed)
+    try:
+        api_key = os.environ.get("PINECONE_API_KEY")
+        if api_key:
+            backend = PineconeBackend(
+                api_key=api_key,
+                index_name="membrain-fallback",
+                dimension=1536,
+            )
+            if backend.health_check():
+                return backend
+    except Exception:
+        pass
+
+    # 4. Last resort: in-memory (dev only)
+    return SimpleInMemoryBackend()
+
+client = MembrainClient(vector_backend=create_backend())
+```
+
+### Environment-Based Selection
+
+```python
+import os
+from membrain import MembrainClient, MilvusBackend, QdrantBackend, PineconeBackend, SimpleInMemoryBackend
+
+BACKENDS = {
+    "production":  lambda: MilvusBackend(
+        uri=os.environ["MILVUS_URI"],
+        token=os.environ.get("MILVUS_TOKEN"),
+        dimension=1536
+    ),
+    "staging":     lambda: QdrantBackend(
+        url=os.environ.get("QDRANT_URL", "http://localhost:6333"),
+        dimension=1536
+    ),
+    "development": lambda: SimpleInMemoryBackend(),
+    "milvus":      lambda: MilvusBackend(uri=os.environ.get("MILVUS_URI", "http://localhost:19530"), dimension=1536),
+    "pinecone":    lambda: PineconeBackend(api_key=os.environ["PINECONE_API_KEY"], dimension=1536),
+}
+
+env = os.environ.get("ENV", "development")
+client = MembrainClient(vector_backend=BACKENDS[env]())
+```
+
+---
+
+## Planned Backends
+
+The following backends are on the roadmap. You can implement any of them today yourself using the [custom backend interface](#writing-a-custom-backend) above.
+
+<CardGroup cols={1}>
+  <Card title="Weaviate" icon="diagram-project">
+    Graph-native vector search. Strong fit for knowledge-graph workloads alongside Membrain's graph layer.
+  </Card>
+</CardGroup>
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection refused / timeout">
+    The server is not running or is on a different port.
+
+    ```bash
+    # Qdrant
+    docker run -p 6333:6333 qdrant/qdrant
+
+    # Milvus
+    docker run -p 19530:19530 -p 9091:9091 milvusdb/milvus:latest
+
+    # ChromaDB server mode
+    chroma run --host 0.0.0.0 --port 8000
+    ```
+
+    Add retry logic with exponential back-off for transient failures:
+
+    ```python
+    import time
+
+    for attempt in range(3):
+        if backend.health_check():
+            break
+        time.sleep(2 ** attempt)
+    else:
+        raise RuntimeError("Vector backend unreachable")
+    ```
+  </Accordion>
+
+  <Accordion title="Dimension mismatch error">
+    The `dimension` in your config does not match the embedding model output. Consult the [dimension quick reference](#embedding-dimension-quick-reference) above and update your config accordingly.
+  </Accordion>
+
+  <Accordion title="Module not found">
+    The backend package is not installed.
+
+    ```bash
+    pip install qdrant-client   # Qdrant
+    pip install chromadb        # ChromaDB
+    pip install faiss-cpu       # FAISS (CPU)
+    pip install faiss-gpu       # FAISS (GPU)
+    pip install pymilvus        # Milvus
+    pip install pinecone-client # Pinecone
+    pip install lancedb         # LanceDB
+    ```
+  </Accordion>
+
+  <Accordion title="Slow searches on large datasets">
+    If you are using FAISS with `Flat` index on > 10K vectors, switch to a quantised index:
+
+    ```python
+    backend = FAISSBackend(dimension=1536, index_type="IVF100,Flat")
+    ```
+
+    For Qdrant, enable quantisation in your collection settings and use payload filters to narrow the candidate set before vector comparison.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## MemscaleDB Index Types
+
+MemscaleDB ships with six index types to cover every scale and use case:
+
+| Index | Algorithm | Recall | Best dataset size | Build required |
+|---|---|---|---|---|
+| [HNSW](/memscaledb/overview) | Multi-layer navigable small world graph | ~95-99% | 10k--10M | No (incremental) |
+| [Flat](/memscaledb/flat) | Brute-force linear scan | 100% (exact) | Under 10k | No |
+| [IVF](/memscaledb/ivf) | Voronoi cell partitioning (k-means) | ~90-95% | 10k--1M | Yes |
+| [LSH](/memscaledb/lsh) | Random hyperplane hashing | ~80-90% | Any (high-dim friendly) | No |
+| [Vamana](/memscaledb/vamana) | DiskANN bounded-degree graph | ~90-95% | 100k+ | Yes |
+| [Sharded](/memscaledb/sharded) | Multi-shard HNSW with centroid routing | ~95% | 100k--10M+ | Yes |
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MemscaleDB HNSW" icon="bolt" href="/memscaledb/overview">
+    Built-in default -- start here
+  </Card>
+  <Card title="MemscaleDB Flat" icon="bullseye-arrow" href="/memscaledb/flat">
+    Exact search for small datasets
+  </Card>
+  <Card title="MemscaleDB IVF" icon="table-cells" href="/memscaledb/ivf">
+    Partition-based search for large datasets
+  </Card>
+  <Card title="MemscaleDB LSH" icon="hashtag" href="/memscaledb/lsh">
+    Hash-based search for high-dimensional data
+  </Card>
+  <Card title="MemscaleDB Vamana" icon="circle-nodes" href="/memscaledb/vamana">
+    DiskANN-style graph for sequential access
+  </Card>
+  <Card title="Qdrant" icon="server" href="/integrations/qdrant">
+    Production-scale persistent search
+  </Card>
+  <Card title="ChromaDB" icon="layers" href="/integrations/chromadb">
+    Lightest persistent option
+  </Card>
+  <Card title="FAISS" icon="cpu" href="/integrations/faiss">
+    GPU-accelerated at billions-of-vectors scale
+  </Card>
+  <Card title="LanceDB" icon="hard-drive" href="/integrations/lancedb">
+    Embedded disk-based vector search
+  </Card>
+</CardGroup>

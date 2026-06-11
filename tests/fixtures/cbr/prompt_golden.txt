@@ -1,0 +1,16 @@
+## Successful Past Approaches
+
+### Example 1
+**Problem:** Deploy the payment service
+**Plan:**
+1. Build image
+2. Push to registry
+**Outcome:** Service went live without downtime
+
+## Approaches to Avoid
+
+### Counter-Example 1
+**Problem:** Deploy the payment service
+**Plan:**
+Restart production database first
+**Outcome:** Caused a 20-minute outage

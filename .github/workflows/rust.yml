@@ -1,0 +1,91 @@
+name: rust
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy (workspace lints deny correctness issues; style lints not elevated)
+        # [workspace.lints.clippy] in root Cargo.toml denies
+        # unwrap_used/expect_used/panic/unreachable/todo/unimplemented/dbg_macro.
+        # Per-crate test modules allow unwrap/expect. Style-only lints
+        # (needless_range_loop etc.) remain warnings.
+        run: cargo clippy --workspace --all-targets
+      - name: clippy (lib-only, deny warnings — excludes legacy test style warnings)
+        run: cargo clippy --workspace --lib -- -D warnings
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test --workspace --all-targets --no-fail-fast
+
+  build-ffi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p membrain-ffi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libmembrain_ffi-linux-x86_64
+          path: target/debug/libmembrain_ffi.*
+          retention-days: 7
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: per-crate coverage gate (fail under 80% lines)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -e
+          for crate in membrain-core membrain-conflict membrain-ffi memscaledb; do
+            echo "== $crate =="
+            cargo llvm-cov -p "$crate" \
+              --ignore-filename-regex '(benches/|distance/gpu\.rs$)' \
+              --lcov --output-path "target/lcov-$crate.info" \
+              --fail-under-lines 80
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: target/lcov-*.info
+          retention-days: 7

@@ -1,0 +1,163 @@
+---
+title: LangGraph
+description: Using Membrain with LangGraph for stateful agent workflows and conditional routing
+icon: sitemap
+---
+
+# LangGraph
+
+LangGraph builds agents as explicit **state machines**: nodes are processing steps, edges (including conditional ones) control flow. Membrain persists state across graph invocations and enriches every node with historical context.
+
+## Stateful RAG Graph
+
+A two-node graph: `retrieve` pulls context from Membrain into typed state, then `generate` builds the answer and writes the Q&A back for future queries.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+from langgraph.graph import StateGraph, END
+from typing import TypedDict
+from langchain.chat_models import ChatOpenAI
+
+memory = MembrainClient()
+llm = ChatOpenAI(model="gpt-4")
+
+# --- Seed knowledge ---
+memory.store_fact("LangGraph uses directed acyclic graphs for agent workflows.", 0.9)
+memory.store_fact("State machines provide explicit control flow in LLM apps.", 0.9)
+
+# --- Typed state flowing through the graph ---
+class RAGState(TypedDict):
+    question: str
+    context: str      # populated by the retrieve node
+    answer: str       # populated by the generate node
+
+# --- Node: retrieve context from Membrain ---
+def retrieve(state: RAGState) -> RAGState:
+    results = memory.search(state["question"], limit=5)
+    state["context"] = "\n".join([m.content for m in results.memories])
+    return state
+
+# --- Node: generate answer using retrieved context ---
+def generate(state: RAGState) -> RAGState:
+    response = llm.predict(
+        f"Context:\n{state['context']}\n\nQuestion: {state['question']}"
+    )
+    state["answer"] = response
+    # Persist the Q&A for future retrieval
+    memory.store_event("qa_pair", f"Q: {state['question']}\nA: {response}")
+    return state
+
+# --- Wire the graph ---
+graph = StateGraph(RAGState)
+graph.add_node("retrieve", retrieve)
+graph.add_node("generate", generate)
+graph.set_entry_point("retrieve")
+graph.add_edge("retrieve", "generate")
+graph.add_edge("generate", END)
+
+app = graph.compile()
+
+# --- Run ---
+result = app.invoke({"question": "How does LangGraph handle control flow?"})
+print(result["answer"])
+
+memory.close()
+```
+</CodeGroup>
+
+## Conditional Routing Based on Memory Confidence
+
+After retrieval the average confidence score is compared against a threshold. High confidence routes to grounded generation; low confidence falls back to open generation and writes the answer back at a lower confidence so the knowledge base self-improves over time.
+
+```python
+from membrain import MembrainClient
+from langgraph.graph import StateGraph, END
+from typing import TypedDict
+from langchain.chat_models import ChatOpenAI
+
+memory = MembrainClient()
+llm = ChatOpenAI(model="gpt-4")
+
+CONFIDENCE_THRESHOLD = 0.7  # minimum average confidence to trust retrieval
+
+class RoutedState(TypedDict):
+    question: str
+    context: str
+    answer: str
+    confident: bool  # routing flag
+
+# --- Node: attempt retrieval ---
+def retrieve(state: RoutedState) -> RoutedState:
+    results = memory.search(state["question"], limit=5)
+    if results.memories:
+        state["context"] = "\n".join([m.content for m in results.memories])
+        avg_score = sum(m.score for m in results.memories) / len(results.memories)
+        state["confident"] = avg_score >= CONFIDENCE_THRESHOLD
+    else:
+        state["context"] = ""
+        state["confident"] = False
+    return state
+
+# --- Node: generate with context (high-confidence path) ---
+def generate_grounded(state: RoutedState) -> RoutedState:
+    state["answer"] = llm.predict(
+        f"Use this context to answer.\n\nContext:\n{state['context']}\n\n"
+        f"Question: {state['question']}"
+    )
+    return state
+
+# --- Node: generate without context (low-confidence fallback) ---
+def generate_open(state: RoutedState) -> RoutedState:
+    state["answer"] = llm.predict(
+        f"Answer from your own knowledge.\n\nQuestion: {state['question']}"
+    )
+    # Store the open-ended answer so future queries can benefit
+    memory.store_fact(state["answer"], 0.6)
+    return state
+
+# --- Conditional edge: route based on confidence flag ---
+def route(state: RoutedState) -> str:
+    return "generate_grounded" if state["confident"] else "generate_open"
+
+# --- Wire the graph ---
+graph = StateGraph(RoutedState)
+graph.add_node("retrieve", retrieve)
+graph.add_node("generate_grounded", generate_grounded)
+graph.add_node("generate_open", generate_open)
+
+graph.set_entry_point("retrieve")
+graph.add_conditional_edges("retrieve", route)
+graph.add_edge("generate_grounded", END)
+graph.add_edge("generate_open", END)
+
+app = graph.compile()
+
+# --- Run with a question that has high-confidence context ---
+result = app.invoke({"question": "What is a state machine?"})
+print(f"Confident: {result['confident']}")
+print(result["answer"])
+
+memory.close()
+```
+
+<Note>
+  The confidence-based routing pattern keeps LLM calls grounded when memory is reliable, and falls back gracefully when it isn't — while still writing low-confidence answers back so the knowledge base improves over time.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CrewAI" icon="shield-halved" href="/integrations/crewai">
+    Role-based crews with shared memory tools
+  </Card>
+  <Card title="LangChain" icon="links" href="/integrations/langchain">
+    Tool-using agents and prompt chains
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Pluggable vector backends
+  </Card>
+  <Card title="Graph Memory" icon="diagram-project" href="/cookbooks/graph-memory">
+    Multi-hop relationship retrieval
+  </Card>
+</CardGroup>

@@ -1,0 +1,454 @@
+---
+title: Rust API Reference
+description: Core Membrain API for Rust applications
+icon: gear
+---
+
+# Rust API Reference
+
+Membrain's core library is written in Rust. Use it directly from Rust, or
+through the C ABI bindings consumed by Python and JavaScript.
+
+## Installation
+
+```toml
+[dependencies]
+# Full client with storage, graph, FFI
+membrain-ffi = { path = "crates/membrain-ffi" }
+
+# Standalone vector index only
+memscaledb = { path = "crates/memscaledb" }
+```
+
+## MembrainClient
+
+The primary interface for storing and searching LLM memories.
+
+### Creating a Client
+
+```rust
+use membrain_ffi::MembrainClient;
+
+let client = MembrainClient::new()?;
+
+// Or with custom config
+use membrain_core::config::Config;
+let config = Config::default();
+let client = MembrainClient::with_config(config)?;
+```
+
+### Storing Memories
+
+```rust
+let client = MembrainClient::new()?;
+
+// Semantic memory
+client.store_fact("User prefers dark mode", 0.9)?;
+client.store_concept("HNSW", "Hierarchical Navigable Small World graph")?;
+client.store_entity("Rust", "technology")?;
+
+// Episodic memory
+client.store_event("chat", "User asked about Rust")?;
+client.store_observation("User tends to ask about systems programming")?;
+client.store_preference("user", "theme", "dark mode", "strong")?;
+
+// Procedural memory
+client.store_workflow("deploy", "Build, test, push, deploy")?;
+client.store_skill("code_review", "Analyze code for bugs and style")?;
+client.store_pattern("morning_standup", "Daily team sync", "temporal")?;
+
+// Agent state
+client.store_goal("Complete the project documentation")?;
+client.store_task("Write unit tests for the FFI layer")?;
+```
+
+### Searching
+
+```rust
+use membrain_ffi::{MembrainClient, SearchFiltersJson};
+
+let results = client.search("dark mode preferences", 10)?;
+for memory in &results.memories {
+    println!("{} (score: {:.2})", memory.content, memory.score);
+}
+
+// Search with filters
+let filters = SearchFiltersJson {
+    memory_types: Some(vec!["semantic_fact".to_string()]),
+    min_confidence: Some(0.8),
+    tags: None,
+    agent_id: None,
+    metadata: None,
+};
+let results = client.search_with_filters("dark mode", 10, Some(filters))?;
+```
+
+### Other Operations
+
+```rust
+if let Some(memory) = client.get("memory-id-here")? {
+    println!("{}: {}", memory.memory_type, memory.content);
+}
+
+let deleted = client.delete("memory-id-here")?;
+let stats = client.stats()?;
+let health = client.vector_backend_health()?;
+```
+
+---
+
+## VectorIndex Trait
+
+All non-concurrent index types implement the `VectorIndex` trait:
+
+```rust
+pub trait VectorIndex: Send + Sync {
+    fn add(&mut self, id: VectorId, vector: &[f32]) -> Result<()>;
+    fn remove(&mut self, id: &VectorId) -> Result<bool>;
+    fn search(&self, query: &[f32], k: usize) -> Result<Vec<VectorSearchResult>>;
+    fn search_with_filter(
+        &self, query: &[f32], k: usize,
+        filter: &dyn Fn(&VectorId) -> bool,
+    ) -> Result<Vec<VectorSearchResult>>;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
+    fn clear(&mut self);
+    fn dimension(&self) -> usize;
+}
+```
+
+## ConcurrentVectorIndex Trait
+
+All concurrent index types implement the `ConcurrentVectorIndex` trait. All methods take `&self` (not `&mut self`), enabling sharing via `Arc`:
+
+```rust
+pub trait ConcurrentVectorIndex: Send + Sync {
+    fn add_concurrent(&self, id: VectorId, vector: &[f32]) -> Result<()>;
+    fn remove_concurrent(&self, id: &VectorId) -> Result<bool>;
+    fn search(&self, query: &[f32], k: usize) -> Result<Vec<VectorSearchResult>>;
+    fn search_with_filter(
+        &self, query: &[f32], k: usize,
+        filter: &dyn Fn(&VectorId) -> bool,
+    ) -> Result<Vec<VectorSearchResult>>;
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
+    fn clear(&self);
+    fn dimension(&self) -> usize;
+}
+```
+
+---
+
+## Index Types
+
+### HnswIndex
+
+Multi-layer navigable graph. Best general-purpose index.
+
+```rust
+use memscaledb::{HnswIndex, HnswConfig, VectorIndex, VectorId};
+
+let mut index = HnswIndex::new(384);
+
+// Or with custom config
+let config = HnswConfig {
+    m: 16, ef_construction: 200, ef_search: 100,
+    ..HnswConfig::default()
+};
+let mut index = HnswIndex::with_config(384, config);
+
+index.add(VectorId::new(), &[0.1, 0.2, 0.3])?;
+let results = index.search(&[0.1, 0.2, 0.35], 5)?;
+```
+
+### FlatIndex
+
+Brute-force exact search with 100% recall.
+
+```rust
+use memscaledb::{FlatIndex, FlatConfig, DistanceMetric, VectorIndex};
+
+let mut index = FlatIndex::new(384);
+
+// Supports all five distance metrics
+let config = FlatConfig {
+    distance_metric: DistanceMetric::Euclidean,
+    ..Default::default()
+};
+let mut index = FlatIndex::with_config(384, config);
+```
+
+### IvfIndex
+
+Inverted file with k-means partitioning. Requires training data.
+
+```rust
+use memscaledb::{IvfIndex, IvfConfig, VectorIndex, VectorId};
+
+let config = IvfConfig {
+    num_cells: 32, nprobe: 4,
+    ..IvfConfig::default()
+};
+
+let vector_refs: Vec<&[f32]> = vectors.iter().map(|v| v.as_slice()).collect();
+let mut index = IvfIndex::build(&ids, &vector_refs, 768, config)?;
+```
+
+### LshIndex
+
+Locality-sensitive hashing for high-dimensional data.
+
+```rust
+use memscaledb::{LshIndex, LshConfig, VectorIndex};
+
+let mut index = LshIndex::new(1536);
+
+let config = LshConfig {
+    num_hyperplanes: 24, num_tables: 12,
+    ..LshConfig::default()
+};
+let mut index = LshIndex::with_config(1536, config);
+```
+
+### VamanaIndex
+
+DiskANN-style bounded-degree graph. Requires training data.
+
+```rust
+use memscaledb::{VamanaIndex, VamanaConfig, VectorIndex};
+
+let config = VamanaConfig {
+    max_degree: 32, alpha: 1.2, search_list_size: 64,
+    ..VamanaConfig::default()
+};
+
+let vector_refs: Vec<&[f32]> = vectors.iter().map(|v| v.as_slice()).collect();
+let mut index = VamanaIndex::build(&ids, &vector_refs, 768, config)?;
+```
+
+### ShardedIndex
+
+Multi-shard HNSW with centroid-based routing.
+
+```rust
+use memscaledb::{ShardedIndex, ShardedConfig};
+
+let config = ShardedConfig {
+    num_shards: 16, dimension: 768,
+    ..ShardedConfig::default()
+};
+
+let refs: Vec<&[f32]> = vectors.iter().map(|v| v.as_slice()).collect();
+let mut index = ShardedIndex::build(&ids, &refs, config);
+```
+
+---
+
+## Concurrent Indices
+
+Thread-safe variants using `parking_lot::RwLock` internally. Share via `Arc`:
+
+```rust
+use memscaledb::{ConcurrentHnswIndex, ConcurrentVectorIndex, VectorId};
+use std::sync::Arc;
+use std::thread;
+
+let index = Arc::new(ConcurrentHnswIndex::new(384));
+
+let writer = Arc::clone(&index);
+let handle = thread::spawn(move || {
+    for _ in 0..100 {
+        writer.add_concurrent(VectorId::new(), &[0.5; 384]).expect("add");
+    }
+});
+
+let results = index.search(&[0.5; 384], 10)?;
+handle.join().expect("writer panicked");
+```
+
+Available types:
+- `ConcurrentFlatIndex::new(dimension)` / `::with_config(dimension, config)`
+- `ConcurrentHnswIndex::new(dimension)` / `::with_config(dimension, config)`
+- `ConcurrentIvfIndex::build(&ids, &vector_refs, dimension, config)`
+- `ConcurrentLshIndex::new(dimension)` / `::with_config(dimension, config)`
+- `ConcurrentVamanaIndex::build(&ids, &vector_refs, dimension, config)`
+
+---
+
+## DistributedIndex
+
+Multi-node distributed index with consistent hashing and SWIM gossip.
+
+```rust
+use memscaledb::{DistributedIndex, DistributedConfig};
+
+let config = DistributedConfig {
+    dimension: 128,
+    listen_address: "127.0.0.1:9400".to_string(),
+    replication_factor: 3,
+    ..DistributedConfig::default()
+};
+
+let index = DistributedIndex::connect(config)?;
+```
+
+---
+
+## MultiTenantIndex
+
+Namespace-based multi-tenancy with per-tenant concurrent indices.
+
+```rust
+use memscaledb::{MultiTenantIndex, MultiTenantConfig};
+
+let config = MultiTenantConfig {
+    dimension: 384,
+    index_type: "hnsw".to_string(),
+    ..MultiTenantConfig::default()
+};
+
+let index = MultiTenantIndex::new(config);
+```
+
+---
+
+## Persistence
+
+### MessagePack Serialization
+
+```rust
+let bytes = index.to_bytes()?;
+let restored = HnswIndex::from_bytes(&bytes)?;
+```
+
+### Binary Format
+
+```rust
+let mut file = std::fs::File::create("index.bin")?;
+index.save_binary(&mut file)?;
+```
+
+### Memory-mapped Read-only Index
+
+```rust
+use memscaledb::MmapIndex;
+
+let read_only = MmapIndex::open("index.bin")?;
+let results = read_only.search(&query, 10)?;
+```
+
+### Write-Ahead Log
+
+```rust
+use memscaledb::WalConfig;
+use std::path::PathBuf;
+
+index.enable_wal(WalConfig {
+    log_path: PathBuf::from("data/index.wal"),
+    checkpoint_dir: PathBuf::from("data/checkpoints"),
+    checkpoint_interval: 1000,
+})?;
+```
+
+### Async Write-Ahead Log
+
+Batched background writes for 10-100x higher write throughput:
+
+```rust
+use memscaledb::{AsyncWalConfig, AsyncWriteAheadLog};
+
+let config = AsyncWalConfig {
+    log_path: "data/membrain.wal".into(),
+    checkpoint_dir: "data/checkpoints".into(),
+    checkpoint_interval: 10_000,
+    max_batch_size: 1000,
+    flush_interval_ms: 100,
+    ..Default::default()
+};
+
+let wal = AsyncWriteAheadLog::open(config)?;
+let sender = wal.sender(); // Clone and share across threads
+sender.log_insert(VectorId::new(), &[0.5; 128])?;
+wal.flush_sync()?;
+```
+
+---
+
+## Batch Search
+
+The `BatchSearch` trait is auto-implemented for all `VectorIndex` types:
+
+```rust
+use memscaledb::BatchSearch;
+
+let queries: Vec<Vec<f32>> = /* ... */;
+let results = index.batch_search(&queries, 10);
+```
+
+---
+
+## Return Types
+
+### VectorSearchResult
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `VectorId` | Vector entry ID |
+| `score` | `f32` | Similarity score (higher = more similar) |
+| `distance` | `f32` | Distance (lower = more similar) |
+
+### MetricsSnapshot
+
+| Field | Type | Description |
+|---|---|---|
+| `searches` | `u64` | Total search operations |
+| `inserts` | `u64` | Total insert operations |
+| `deletes` | `u64` | Total delete operations |
+| `compactions` | `u64` | Total compaction events |
+| `cache_hits` | `u64` | Query cache hits |
+| `cache_misses` | `u64` | Query cache misses |
+| `distance_computations` | `u64` | Total distance calculations |
+
+---
+
+## Re-exports from memscaledb
+
+Key public types from `memscaledb`:
+
+```rust
+pub use batch::BatchSearch;
+pub use cache::{CacheConfig, QueryCache};
+pub use composite::CompositeIndex;
+pub use distance::{DistanceFn, DistanceMetric};
+pub use error::{Error, Result};
+pub use flat::{ConcurrentFlatIndex, FlatConfig, FlatIndex};
+pub use hnsw::{ConcurrentHnswIndex, HnswConfig, HnswIndex};
+pub use ivf::{ConcurrentIvfIndex, IvfConfig, IvfIndex};
+pub use lsh::{ConcurrentLshIndex, LshConfig, LshIndex};
+pub use vamana::{ConcurrentVamanaIndex, VamanaConfig, VamanaIndex};
+pub use id::VectorId;
+pub use multi_tenant::{MultiTenantConfig, MultiTenantIndex};
+pub use metrics::{IndexMetrics, MetricsSnapshot};
+pub use persistence::{AsyncWalConfig, AsyncWalSender, AsyncWriteAheadLog, MmapIndex, WalConfig, WriteAheadLog};
+pub use quantization::{PqConfig, PqStorage};
+pub use sharded::{ShardedConfig, ShardedIndex};
+pub use distributed::{ClusterInfo, DistributedConfig, DistributedIndex, NodeId, NodeInfo};
+pub use storage::{MemscaleStorage, MemscaleStorageConfig};
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Python API" icon="python" href="/api-reference/python-api">
+    Python bindings reference
+  </Card>
+  <Card title="JavaScript API" icon="js" href="/api-reference/javascript-api">
+    JavaScript bindings reference
+  </Card>
+  <Card title="MemscaleDB" icon="database" href="/memscaledb/overview">
+    Vector database deep dive
+  </Card>
+  <Card title="Cookbooks" icon="book-open" href="/cookbooks/basic-usage">
+    Practical examples
+  </Card>
+</CardGroup>

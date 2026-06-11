@@ -1,0 +1,603 @@
+---
+title: Graph Memory
+description: Advanced graph-based memory operations with multi-hop traversal
+icon: diagram-project
+---
+
+# Cookbook: Graph Memory for LLMs
+
+Advanced graph-based memory operations with multi-hop traversal for complex LLM reasoning. Perfect for building knowledge graphs that help LLMs understand relationships between concepts.
+
+## LLM Knowledge Graph Setup
+
+<CodeGroup>
+```python Python with Embeddings
+from membrain import MembrainGraph
+from sentence_transformers import SentenceTransformer
+
+# Initialize graph and embedding model
+graph = MembrainGraph({
+    "hidden_dim": 128,
+    "embedding_dim": 384  # Match your embedding model
+})
+
+# Use a real embedding model (not random!)
+encoder = SentenceTransformer('all-MiniLM-L6-v2')
+
+# Store related concepts
+concepts = [
+    ("Python is a high-level programming language", 0.9),
+    ("Rust focuses on memory safety and performance", 0.95),
+    ("JavaScript runs in browsers and Node.js", 0.88),
+]
+
+for text, confidence in concepts:
+    embedding = encoder.encode(text).tolist()
+    mem_id = text[:20].replace(" ", "_")
+    graph.add_node(mem_id, embedding, confidence)
+
+print(f"Knowledge graph: {graph.node_count()} concepts, {graph.edge_count()} relationships")
+
+graph.close()
+```
+
+```javascript JavaScript with Transformers
+import { MembrainGraph } from 'membrain';
+import { pipeline } from '@xenova/transformers';
+
+// Initialize graph and embedding model
+const graph = new MembrainGraph({
+  hidden_dim: 128,
+  embedding_dim: 384
+});
+
+const embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+
+// Store related concepts
+const concepts = [
+  ["Python is a high-level programming language", 0.9],
+  ["Rust focuses on memory safety and performance", 0.95],
+  ["JavaScript runs in browsers and Node.js", 0.88],
+];
+
+for (const [text, confidence] of concepts) {
+  const output = await embedder(text, { pooling: 'mean', normalize: true });
+  const embedding = Array.from(output.data);
+  const memId = text.substring(0, 20).replace(/\s/g, '_');
+  graph.addNode(memId, embedding, confidence);
+}
+
+console.log(`Knowledge graph: ${graph.nodeCount()} concepts, ${graph.edgeCount()} relationships`);
+
+graph.close();
+```
+
+```rust Rust
+use membrain_graph::{GraphConfig, MemoryGraph};
+
+let config = GraphConfig {
+    hidden_dim: 128,
+    embedding_dim: 384,
+    ..GraphConfig::default()
+};
+let graph = MemoryGraph::new(config);
+
+// Add concepts (use real embeddings from your embedding model)
+let embedding = vec![0.1_f32; 384];
+graph.add_node("python_lang", &embedding, 0.9);
+graph.add_node("rust_lang", &embedding, 0.95);
+
+println!("Graph: {} concepts, {} relationships",
+    graph.node_count(), graph.edge_count());
+```
+</CodeGroup>
+
+<Tip>
+  Graph memory helps LLMs understand relationships between concepts through neural attention mechanisms. Perfect for complex reasoning and multi-hop question answering.
+</Tip>
+
+## Multi-Hop Query for LLM Reasoning
+
+Multi-hop traversal helps LLMs discover related concepts through relationship chains, enabling complex reasoning and comprehensive context retrieval.
+
+<CodeGroup>
+```python Python - LLM Complex Reasoning
+from membrain import MembrainGraph
+from sentence_transformers import SentenceTransformer
+from openai import OpenAI
+
+# Initialize
+graph = MembrainGraph()
+encoder = SentenceTransformer('all-MiniLM-L6-v2')
+llm = OpenAI()
+
+# Build a knowledge graph of related concepts
+knowledge = [
+    "Python is excellent for machine learning",
+    "TensorFlow is a popular ML framework",
+    "TensorFlow was developed by Google",
+    "Google also created BERT for NLP",
+    "BERT revolutionized natural language processing"
+]
+
+for text in knowledge:
+    embedding = encoder.encode(text).tolist()
+    mem_id = f"mem_{text[:15].replace(' ', '_')}"
+    graph.add_node(mem_id, embedding, 0.9)
+
+# User asks a complex question
+user_question = "What company created tools for NLP?"
+query_embedding = encoder.encode(user_question).tolist()
+
+# Multi-hop traversal to find related concepts
+result = graph.query(
+    embedding=query_embedding,
+    max_hops=3,  # Follow relationships up to 3 levels deep
+    top_k=5
+)
+
+# Build comprehensive context from graph traversal
+related_concepts = [node.memory_id for node in result.nodes]
+context = f"Related concepts found through knowledge graph:\n" + "\n".join(related_concepts)
+
+# LLM uses comprehensive context for reasoning
+response = llm.chat.completions.create(
+    model="gpt-4",
+    messages=[
+        {"role": "system", "content": context},
+        {"role": "user", "content": user_question}
+    ]
+)
+
+print("LLM Answer:", response.choices[0].message.content)
+print(f"\nGraph traversal found {len(result.nodes)} related concepts")
+
+graph.close()
+```
+
+```javascript JavaScript - LLM Complex Reasoning
+import { MembrainGraph } from 'membrain';
+import { pipeline } from '@xenova/transformers';
+import { ChatOpenAI } from 'langchain/chat_models/openai';
+
+// Initialize
+const graph = new MembrainGraph();
+for i in range(20):
+    embedding = [random.random() for _ in range(16)]
+    graph.add_node(f"concept_{i}", embedding, 0.8)
+
+# Query with multi-hop traversal
+query_embedding = [random.random() for _ in range(16)]
+result = graph.query(
+    embedding=query_embedding,
+    max_hops=3,
+    top_k=5
+)
+
+print(f"Found {len(result.nodes)} nodes in {result.hops_performed} hops")
+for node in result.nodes:
+    print(f"  {node.memory_id}: score={node.score:.3f}, hop={node.hop_distance}")
+
+# Analyze traversal path
+print(f"\nTraversal path ({len(result.traversed_edges)} edges):")
+for step in result.traversed_edges[:5]:  # Show first 5
+    print(f"  {step.from_id} -> {step.to_id} (attention: {step.attention_score:.3f})")
+
+graph.close()
+```
+
+```javascript JavaScript
+import { MembrainGraph } from 'membrain';
+
+const graph = new MembrainGraph();
+
+// Build a knowledge graph
+for (let i = 0; i < 20; i++) {
+  const embedding = Array(16).fill(0).map(Math.random);
+  graph.addNode(`concept_${i}`, embedding, 0.8);
+}
+
+// Query with multi-hop traversal
+const queryEmbedding = Array(16).fill(0).map(Math.random);
+const result = graph.query(queryEmbedding, 3, 5);
+
+console.log(`Found ${result.nodes.length} nodes in ${result.hops_performed} hops`);
+result.nodes.forEach(node => {
+  console.log(`  ${node.memory_id}: score=${node.score.toFixed(3)}, hop=${node.hop_distance}`);
+});
+
+// Analyze traversal path
+console.log(`\nTraversal path (${result.traversed_edges.length} edges):`);
+result.traversed_edges.slice(0, 5).forEach(step => {
+  console.log(`  ${step.from} -> ${step.to} (attention: ${step.attention_score.toFixed(3)})`);
+});
+
+graph.close();
+```
+
+```rust Rust
+use membrain_graph::{GraphConfig, MemoryGraph};
+
+let graph = MemoryGraph::new(GraphConfig::default());
+
+// Build knowledge graph
+for i in 0..20 {
+    let embedding = vec![0.1_f32; 16];
+    graph.add_node(&format!("concept_{i}"), &embedding, 0.8);
+}
+
+// Query with multi-hop traversal
+let query_embedding = vec![0.1_f32; 16];
+let result = graph.query(&query_embedding, 3, 5);
+
+println!("Found {} nodes in {} hops", result.nodes.len(), result.hops_performed);
+for node in &result.nodes {
+    println!("  {}: score={:.3}, hop={}", node.memory_id, node.score, node.hop_distance);
+}
+```
+</CodeGroup>
+
+<Note>
+  The `max_hops` parameter controls how many relationship jumps the query can make. Higher values enable more complex reasoning but increase computation time.
+</Note>
+
+## Graph Persistence
+
+Save and restore your graph state for long-term storage.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainGraph
+import random
+
+# Create and populate graph
+graph = MembrainGraph()
+for i in range(10):
+    graph.add_node(f"node_{i}", [random.random() for _ in range(16)])
+
+# Save to string
+saved_data = graph.save()
+print(f"Saved {len(saved_data)} bytes (base64)")
+
+# Store in file
+with open("graph_state.txt", "w") as f:
+    f.write(saved_data)
+
+graph.close()
+
+# Later: Load from file
+with open("graph_state.txt", "r") as f:
+    loaded_data = f.read()
+
+restored_graph = MembrainGraph.load(loaded_data)
+print(f"Restored graph: {restored_graph.node_count()} nodes")
+restored_graph.close()
+```
+
+```javascript JavaScript
+import { MembrainGraph } from 'membrain';
+import * as fs from 'fs';
+
+// Create and populate graph
+const graph = new MembrainGraph();
+for (let i = 0; i < 10; i++) {
+  graph.addNode(`node_${i}`, Array(16).fill(0).map(Math.random));
+}
+
+// Save to string
+const savedData = graph.save();
+console.log(`Saved ${savedData.length} bytes (base64)`);
+
+// Store in file
+fs.writeFileSync("graph_state.txt", savedData);
+
+graph.close();
+
+// Later: Load from file
+const loadedData = fs.readFileSync("graph_state.txt", "utf-8");
+const restoredGraph = MembrainGraph.load(loadedData);
+console.log(`Restored graph: ${restoredGraph.nodeCount()} nodes`);
+restoredGraph.close();
+```
+
+```rust Rust
+use membrain_graph::{GraphConfig, MemoryGraph};
+
+let graph = MemoryGraph::new(GraphConfig::default());
+for i in 0..10 {
+    graph.add_node(&format!("node_{i}"), &vec![0.1_f32; 16], 0.8);
+}
+
+// Save to string
+let saved_data = membrain_graph::save_to_base64(&graph).unwrap();
+println!("Saved {} bytes", saved_data.len());
+
+// Restore
+let restored = membrain_graph::load_from_base64(&saved_data).unwrap();
+println!("Restored: {} nodes", restored.node_count());
+```
+</CodeGroup>
+
+## Graph Pruning
+
+Optimize your graph by removing low-quality connections and isolated nodes.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainGraph
+import random
+
+graph = MembrainGraph()
+
+# Add many nodes
+for i in range(100):
+    graph.add_node(f"node_{i}", [random.random() for _ in range(16)])
+
+print(f"Before: {graph.node_count()} nodes, {graph.edge_count()} edges")
+
+# Prune low-quality connections
+result = graph.prune()
+print(f"Pruned: {result.edges_removed} edges, {result.nodes_removed} nodes")
+print(f"After: {result.edges_remaining} edges, {result.nodes_remaining} nodes")
+
+graph.close()
+```
+
+```javascript JavaScript
+import { MembrainGraph } from 'membrain';
+
+const graph = new MembrainGraph();
+
+// Add many nodes
+for (let i = 0; i < 100; i++) {
+  graph.addNode(`node_${i}`, Array(16).fill(0).map(Math.random));
+}
+
+console.log(`Before: ${graph.nodeCount()} nodes, ${graph.edgeCount()} edges`);
+
+// Prune low-quality connections
+const result = graph.prune();
+console.log(`Pruned: ${result.edges_removed} edges, ${result.nodes_removed} nodes`);
+console.log(`After: ${result.edges_remaining} edges, ${result.nodes_remaining} nodes`);
+
+graph.close();
+```
+
+```rust Rust
+use membrain_graph::{GraphConfig, MemoryGraph};
+
+let graph = MemoryGraph::new(GraphConfig::default());
+for i in 0..100 {
+    graph.add_node(&format!("node_{i}"), &vec![0.1_f32; 16], 0.8);
+}
+
+println!("Before: {} nodes, {} edges", graph.node_count(), graph.edge_count());
+
+let result = membrain_graph::prune(&graph);
+println!("Pruned: {} edges, {} nodes removed", result.edges_removed, result.nodes_removed);
+```
+</CodeGroup>
+
+<Warning>
+  Graph pruning permanently removes nodes and edges. Make sure to save your graph state before pruning if you need to preserve the original structure.
+</Warning>
+
+## Combining Client and Graph
+
+Leverage both semantic storage and graph relationships for powerful memory systems.
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, MembrainGraph
+import random
+
+# Store memories in client
+client = MembrainClient()
+ids = []
+for topic in ["Python", "Rust", "JavaScript"]:
+    result = client.store_fact(f"{topic} is a programming language", 0.9)
+    ids.append(result.id)
+
+# Build graph relationships
+graph = MembrainGraph()
+for mem_id in ids:
+    # In production, get real embeddings from an embedding model
+    embedding = [random.random() for _ in range(16)]
+    graph.add_node(mem_id, embedding)
+
+# Query graph
+query_emb = [random.random() for _ in range(16)]
+result = graph.query(query_emb, max_hops=2, top_k=3)
+
+# Retrieve full content from client
+for node in result.nodes:
+    memory = client.get(node.memory_id)
+    if memory:
+        print(f"{memory.content} (score: {node.score:.3f})")
+
+client.close()
+graph.close()
+```
+
+```javascript JavaScript
+import { MembrainClient, MembrainGraph } from 'membrain';
+
+// Store memories in client
+const client = new MembrainClient();
+const ids = [];
+for (const topic of ["Python", "Rust", "JavaScript"]) {
+  const result = client.storeFact(`${topic} is a programming language`, 0.9);
+  ids.push(result.id);
+}
+
+// Build graph relationships
+const graph = new MembrainGraph();
+for (const memId of ids) {
+  // In production, get real embeddings from an embedding model
+  const embedding = Array(16).fill(0).map(Math.random);
+  graph.addNode(memId, embedding);
+}
+
+// Query graph
+const queryEmb = Array(16).fill(0).map(Math.random);
+const result = graph.query(queryEmb, 2, 3);
+
+// Retrieve full content from client
+for (const node of result.nodes) {
+  const memory = client.get(node.memory_id);
+  if (memory) {
+    console.log(`${memory.content} (score: ${node.score.toFixed(3)})`);
+  }
+}
+
+client.close();
+graph.close();
+```
+
+```rust Rust
+use membrain_ffi::MembrainClient;
+use membrain_graph::{GraphConfig, MemoryGraph};
+
+let client = MembrainClient::new().unwrap();
+let graph = MemoryGraph::new(GraphConfig::default());
+
+// Store memories in client
+let mut ids = vec![];
+for topic in ["Python", "Rust", "JavaScript"] {
+    let result = client.store_fact(&format!("{topic} is a programming language"), 0.9).unwrap();
+    if let Some(id) = result.id {
+        ids.push(id);
+    }
+}
+
+// Build graph relationships
+for id in &ids {
+    let embedding = vec![0.1_f32; 16]; // Use real embeddings in production
+    graph.add_node(id, &embedding, 0.9);
+}
+
+// Query graph, then fetch full content from client
+let query_emb = vec![0.1_f32; 16];
+let result = graph.query(&query_emb, 2, 3);
+for node in &result.nodes {
+    if let Ok(Some(memory)) = client.get(&node.memory_id) {
+        println!("{} (score: {:.3})", memory.content, node.score);
+    }
+}
+```
+</CodeGroup>
+
+<Tip>
+  This pattern is ideal for production systems: use MembrainClient for semantic storage and search, while MembrainGraph handles relationship discovery and multi-hop reasoning.
+</Tip>
+
+## Integration with Embedding Models
+
+### Sentence Transformers (Python)
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, MembrainGraph
+from sentence_transformers import SentenceTransformer
+
+# Load embedding model
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+client = MembrainClient()
+graph = MembrainGraph()
+
+# Store with real embeddings
+texts = [
+    "Python is great for data science",
+    "Rust is fast and memory safe",
+    "JavaScript runs in browsers"
+]
+
+for text in texts:
+    # Store in client
+    result = client.store_fact(text, 0.9)
+
+    # Get embedding and add to graph
+    embedding = model.encode(text).tolist()
+    graph.add_node(result.id, embedding)
+
+# Query with embedding
+query = "What's good for web development?"
+query_emb = model.encode(query).tolist()
+result = graph.query(query_emb, max_hops=2, top_k=3)
+
+for node in result.nodes:
+    memory = client.get(node.memory_id)
+    print(f"{memory.content} (score: {node.score:.3f})")
+
+client.close()
+graph.close()
+```
+</CodeGroup>
+
+### Transformers.js (JavaScript)
+
+<CodeGroup>
+```javascript JavaScript
+import { MembrainClient, MembrainGraph } from 'membrain';
+import { pipeline } from '@xenova/transformers';
+
+// Load embedding model
+const extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+
+const client = new MembrainClient();
+const graph = new MembrainGraph();
+
+// Store with real embeddings
+const texts = [
+  "Python is great for data science",
+  "Rust is fast and memory safe",
+  "JavaScript runs in browsers"
+];
+
+for (const text of texts) {
+  // Store in client
+  const result = client.storeFact(text, 0.9);
+
+  // Get embedding and add to graph
+  const output = await extractor(text, { pooling: 'mean', normalize: true });
+  const embedding = Array.from(output.data);
+  graph.addNode(result.id, embedding);
+}
+
+// Query with embedding
+const query = "What's good for web development?";
+const queryOutput = await extractor(query, { pooling: 'mean', normalize: true });
+const queryEmb = Array.from(queryOutput.data);
+const result = graph.query(queryEmb, 2, 3);
+
+for (const node of result.nodes) {
+  const memory = client.get(node.memory_id);
+  console.log(`${memory.content} (score: ${node.score.toFixed(3)})`);
+}
+
+client.close();
+graph.close();
+```
+</CodeGroup>
+
+<Note>
+  When using real embedding models, ensure the embedding dimension matches your graph configuration. The default is 16, but production models often use 384 or 768 dimensions.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="LLM Frameworks" icon="puzzle-piece" href="/integrations/langchain">
+    LangChain, LlamaIndex, AutoGen & more
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Pluggable vector backends
+  </Card>
+  <Card title="Multi-Agent Systems" icon="users" href="/cookbooks/multi-agent">
+    Build collaborative AI agents
+  </Card>
+  <Card title="Advanced Patterns" icon="wand-magic-sparkles" href="/cookbooks/advanced-patterns">
+    Optimization and advanced techniques
+  </Card>
+</CardGroup>

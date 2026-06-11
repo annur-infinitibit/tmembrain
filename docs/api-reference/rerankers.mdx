@@ -1,0 +1,143 @@
+---
+title: Rerankers
+description: Cross encoder and LLM-based rerankers for two-step retrieval
+icon: arrow-up-wide-short
+---
+
+# Rerankers
+
+Rerankers take the output of `client.search()` and re-score each memory against the query with a stronger model. Use them when precision matters more than raw latency.
+
+Two categories:
+
+- **Cross encoder** (Cohere, Jina) — purpose-built relevance models. Fast, cheap, high recall.
+- **LLM-based** (OpenAI, Anthropic) — general LLMs prompted to score 0–10. Flexible, slower, more expensive.
+
+## Quickstart
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient, CohereReranker
+
+memory = MembrainClient()
+memory.store_fact("Python was created by Guido van Rossum in 1991", 0.95)
+memory.store_fact("Rust was created by Graydon Hoare at Mozilla", 0.9)
+
+candidates = memory.search("Who created Python?", limit=20)
+reranker = CohereReranker(api_key="...", model="rerank-v3.5")
+top = reranker.rerank("Who created Python?", candidates, top_k=3)
+
+for m in top.memories:
+    print(f"[{m.relevance_score:.3f}] {m.content}")
+```
+
+```javascript JavaScript
+import { MembrainClient, CohereReranker } from "membrain";
+
+const memory = new MembrainClient();
+memory.storeFact("Python was created by Guido van Rossum in 1991", 0.95);
+memory.storeFact("Rust was created by Graydon Hoare at Mozilla", 0.9);
+
+const candidates = memory.search("Who created Python?", 20);
+const reranker = new CohereReranker({ apiKey: "...", model: "rerank-v3.5" });
+const top = await reranker.rerank("Who created Python?", candidates, 3);
+
+for (const m of top.memories) {
+  console.log(`[${m.relevance_score.toFixed(3)}] ${m.content}`);
+}
+```
+</CodeGroup>
+
+## Available rerankers
+
+| Class | Provider | Default model | Kind |
+|---|---|---|---|
+| `CohereReranker` | Cohere | `rerank-v3.5` | Cross encoder |
+| `JinaReranker` | Jina AI | `jina-reranker-v2-base-multilingual` | Cross encoder |
+| `OpenAIReranker` | OpenAI | `gpt-4o-mini` | LLM |
+| `AnthropicReranker` | Anthropic | `claude-sonnet-4-5-20250929` | LLM |
+
+All rerankers share the same interface. Swapping providers is a one-line change.
+
+## Constructor
+
+<CodeGroup>
+```python Python
+CohereReranker(
+    api_key: str,
+    model: str = "rerank-v3.5",
+    top_k: int = 5,
+    endpoint: str | None = None,
+    timeout: int = 30,
+)
+```
+
+```javascript JavaScript
+new CohereReranker({
+  apiKey: string,
+  model?: string,
+  topK?: number,
+  endpoint?: string,
+  timeout?: number,   // milliseconds
+})
+```
+</CodeGroup>
+
+Same shape for all four rerankers. Rate-limit (429) and server (5xx) responses are retried up to 3 times with exponential backoff.
+
+## `rerank(query, results, top_k?)`
+
+Takes the `SearchResults` returned by `client.search()` and returns `RerankResults`:
+
+```
+RerankResults:
+  memories: list[RerankResult]  # sorted by relevance_score desc
+  model: str
+  provider: str
+  duration_ms: int
+
+RerankResult:
+  id, content, score (original), relevance_score (new), memory_type
+```
+
+Pass `top_k` per call to override the constructor default.
+
+## Patterns
+
+**Broad retrieval, narrow rerank** — fetch 20–50 candidates, rerank down to 3–5:
+
+```python
+candidates = memory.search(query, limit=30)
+top = CohereReranker(api_key=key).rerank(query, candidates, top_k=5)
+```
+
+**LLM-based scoring with custom prompt logic** — use `OpenAIReranker` when you need the same provider as your generation LLM:
+
+```python
+from membrain import OpenAIReranker
+top = OpenAIReranker(api_key=key, model="gpt-4o").rerank(query, candidates)
+```
+
+**Custom reranker** — subclass `BaseReranker` and implement `rerank()`:
+
+```python
+from membrain.rerankers import BaseReranker
+from membrain.types import RerankResults
+
+class MyReranker(BaseReranker):
+    def rerank(self, query, results, top_k=5):
+        ...  # score + build RerankResults
+```
+
+## Errors
+
+All rerankers raise `RerankerError` (Python) / `RerankerError` extending `Error` (JS) on:
+
+- Non-retryable HTTP errors (4xx except 429).
+- Invalid JSON response from LLM rerankers.
+- Exhausted retries on transient failures.
+
+## See also
+
+- [Reranking cookbook](/cookbooks/reranking) — worked examples per provider.
+- [Search & Query](/api-reference/search-query) — the broad-retrieval step.

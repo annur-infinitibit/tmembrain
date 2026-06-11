@@ -1,0 +1,158 @@
+---
+title: Conversation API
+description: Stateful multi-turn sessions with automatic memory extraction and retrieval
+icon: comments
+---
+
+# Conversation API
+
+`Conversation` wraps `MembrainClient` to handle the full memory loop for you: retrieve relevant memories before each turn, call your LLM, then extract and store any memorable information from the response.
+
+Supply any LLM callable (OpenAI, Anthropic, Ollama, local). The API is provider-agnostic.
+
+## Quickstart
+
+<CodeGroup>
+```python Python
+from membrain import Conversation
+from openai import OpenAI
+
+client = OpenAI()
+
+def llm(messages):
+    r = client.chat.completions.create(model="gpt-4o-mini", messages=messages)
+    return r.choices[0].message.content
+
+with Conversation(llm_callable=llm) as conv:
+    conv.reply("I prefer dark mode and work at Acme Corp.")
+    conv.reply("Recommend an editor setup for me.")
+    print(conv.reply("What do you remember about me?"))
+    conv.end(outcome="user satisfied", reward=1.0)
+```
+
+```javascript JavaScript
+import { Conversation } from "membrain";
+import OpenAI from "openai";
+
+const openai = new OpenAI();
+const llm = async (messages) => {
+  const r = await openai.chat.completions.create({ model: "gpt-4o-mini", messages });
+  return r.choices[0].message.content;
+};
+
+const conv = new Conversation(llm);
+await conv.reply("I prefer dark mode and work at Acme Corp.");
+await conv.reply("Recommend an editor setup for me.");
+console.log(await conv.reply("What do you remember about me?"));
+conv.end("user satisfied", 1.0);
+conv.close();
+```
+</CodeGroup>
+
+## How it works
+
+Every `reply()` call:
+
+1. Runs a semantic search on the user message and injects the top memories into the system prompt.
+2. Retrieves up to 3 relevant past cases via case-based reasoning and appends them as "past experience".
+3. Calls your LLM with `[system, ...history, user]`.
+4. Stores the turn as an `event` and, if `auto_extract=True`, issues a second LLM call to extract facts, preferences, observations, entities, and concepts worth remembering.
+
+Call `end(outcome, reward)` to persist the conversation as a case for future retrieval.
+
+## Constructor
+
+<ParamField path="llm_callable" type="Callable" required>
+Function taking `list[{role, content}]`, returning the response string. May be sync or async in JavaScript; must match `Conversation` vs `AsyncConversation` in Python.
+</ParamField>
+
+<ParamField path="client" type="MembrainClient" default="new MembrainClient()">
+Reuse an existing client; otherwise one is created and owned by the conversation.
+</ParamField>
+
+<ParamField path="system_prompt" type="str">
+Overrides the default "helpful assistant with long-term memory" prompt.
+</ParamField>
+
+<ParamField path="memory_limit" type="int" default="10">
+Max memories injected per turn.
+</ParamField>
+
+<ParamField path="auto_extract" type="bool" default="true">
+Set `false` to skip the per-turn extraction call (faster, cheaper, no new writes).
+</ParamField>
+
+<ParamField path="history_limit" type="int" default="50">
+Max turns kept in the LLM context window. Older turns stay in storage but drop from the prompt.
+</ParamField>
+
+<ParamField path="on_extraction_error" type="Callable[[Exception], None]">
+Invoked if the extraction LLM call fails. Default: log and swallow.
+</ParamField>
+
+## Methods
+
+| Method | Description |
+|---|---|
+| `reply(user_message)` | Inject memories, call LLM, store + extract. Returns assistant text. |
+| `end(outcome="", reward=1.0)` | Persist the conversation as a CBR case. `reward=1.0` = success, `-1.0` = failure. |
+| `close()` | Release the owned client. Use `with` / `try/finally`. |
+
+## Properties
+
+- `session_id` / `sessionId` — UUID for this conversation.
+- `history` — list of `{role, content}` turns sent to the LLM.
+
+## Async variant
+
+Python exposes `AsyncConversation` for async LLM callables (`openai.AsyncOpenAI`, etc.). Storage FFI stays synchronous but runs off the event loop via `run_in_executor`. In JavaScript the sync `Conversation` already accepts `Promise<string>`; `AsyncConversation` exists for parity and enforces an async callable.
+
+<CodeGroup>
+```python Python
+from membrain import AsyncConversation
+from openai import AsyncOpenAI
+
+aclient = AsyncOpenAI()
+async def llm(messages):
+    r = await aclient.chat.completions.create(model="gpt-4o-mini", messages=messages)
+    return r.choices[0].message.content
+
+conv = AsyncConversation(llm_callable=llm)
+await conv.reply("Remember I live in Berlin.")
+await conv.end(outcome="onboarded", reward=1.0)
+await conv.close()
+```
+
+```javascript JavaScript
+import { AsyncConversation } from "membrain";
+
+const conv = new AsyncConversation(llm);  // same callable as above
+await conv.reply("Remember I live in Berlin.");
+await conv.end("onboarded", 1.0);
+await conv.close();
+```
+</CodeGroup>
+
+## Patterns
+
+**Disable auto-extraction for read-only flows:**
+
+```python
+with Conversation(llm_callable=llm, auto_extract=False) as conv:
+    print(conv.reply("Summarize what you know about me."))
+```
+
+**Share a client across conversations:**
+
+```python
+from membrain import MembrainClient, Conversation
+client = MembrainClient()
+for user_msg in prompts:
+    with Conversation(llm_callable=llm, client=client) as conv:
+        conv.reply(user_msg)
+```
+
+## See also
+
+- [CBR API](/api-reference/cbr-api) — underlying case storage used by `end()`.
+- [Rerankers](/api-reference/rerankers) — wrap `client.search` output for higher-quality retrieval.

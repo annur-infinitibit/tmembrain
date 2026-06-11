@@ -1,0 +1,40 @@
+[build-system]
+requires = ["maturin>=1.5"]
+build-backend = "maturin"
+
+[project]
+name = "membrain"
+version = "0.1.0"
+description = "Python client for the Membrain memory system (native PyO3)"
+requires-python = ">=3.10"
+keywords = ["memory", "llm", "agent", "async"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.23"]
+mcp = ["mcp>=1.0"]
+
+[project.scripts]
+membrain-mcp = "membrain.mcp_server:main"
+
+[tool.maturin]
+python-source = "."                                       # membrain/ package lives here
+module-name = "membrain._native"                          # import path for the .pyd/.so
+manifest-path = "../crates/membrain-pyo3/Cargo.toml"      # Rust crate to build
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.setuptools.packages.find]
+include = ["membrain*"]

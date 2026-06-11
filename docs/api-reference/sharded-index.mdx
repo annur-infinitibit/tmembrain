@@ -1,0 +1,129 @@
+---
+title: Sharded Index
+description: Centroid-routed HNSW shards for large single-node datasets
+icon: shapes
+---
+
+# Sharded Index
+
+`MembrainShardedIndex` partitions vectors across independent HNSW shards using k-means centroids. At query time only `nprobe` nearby shards are searched, which scales HNSW to datasets that no longer fit a single flat index without paying for a distributed cluster.
+
+## Quickstart
+
+<CodeGroup>
+```python Python
+from membrain import MembrainShardedIndex
+import uuid
+
+ids = [str(uuid.uuid4()) for _ in range(1000)]
+vectors = [[float(i) * 0.01] * 128 for i in range(1000)]
+
+index = MembrainShardedIndex.build(
+    dimension=128,
+    ids=ids,
+    vectors=vectors,
+    config={"num_shards": 4, "nprobe": 2},
+)
+
+results = index.search([0.5] * 128, k=5)
+for r in results:
+    print(r.id, r.score)
+index.close()
+```
+
+```javascript JavaScript
+import { MembrainShardedIndex } from "membrain";
+import crypto from "node:crypto";
+
+const ids = Array.from({ length: 1000 }, () => crypto.randomUUID());
+const vectors = Array.from({ length: 1000 }, (_, i) => Array(128).fill(i * 0.01));
+
+const index = MembrainShardedIndex.build(
+  ids,
+  vectors,
+  { dimension: 128, num_shards: 4, nprobe: 2 },
+);
+
+const results = index.search(Array(128).fill(0.5), 5);
+for (const r of results) console.log(r.id, r.score);
+index.close();
+```
+</CodeGroup>
+
+## Building
+
+Sharded indices are built from a training set — you cannot start empty and add one vector at a time. Call `build()` with the full corpus (or a representative sample), then add stragglers incrementally.
+
+<CodeGroup>
+```python Python
+MembrainShardedIndex.build(
+    dimension: int,
+    ids: list[str],
+    vectors: list[list[float]],
+    config: dict | None = None,
+    *,
+    lib_path: str | None = None,
+)
+```
+
+```javascript JavaScript
+MembrainShardedIndex.build(
+  ids: string[],
+  vectors: number[][],
+  config: ShardedIndexConfig,   // includes dimension
+  libPath?: string,
+)
+```
+</CodeGroup>
+
+Config keys:
+
+| Key | Purpose |
+|---|---|
+| `num_shards` | Partition count. Higher = more parallelism, worse recall. |
+| `nprobe` | Shards probed per query. Higher = better recall, slower. |
+| `overlap_factor` | Boundary replication to hide clustering errors. |
+| `training_sample_size` | Cap on vectors used for k-means. |
+| `kmeans_iterations` | K-means refinement iterations. |
+| `hnsw_config` | Per-shard HNSW tuning (`m`, `ef_construction`, ...). |
+
+## Methods
+
+| Method | Description |
+|---|---|
+| `add(id, embedding)` | Routes to its nearest shard. |
+| `remove(id)` | |
+| `search(query, k=10)` | Probes `nprobe` shards, merges top-k. |
+| `search_with_filter(query, k, allowed_ids)` | Allowlist filter. |
+| `batch_search(queries, k)` | |
+| `rebalance()` | Re-run k-means if the distribution drifted. |
+| `info()` | Shard sizes + centroids. |
+| `save()` → `str` | Base64 MessagePack dump. |
+| `load(data)` | Restore from `save()`. |
+| `len()` / `dimension` / `metrics()` | Stats. |
+
+## Patterns
+
+**Persist + restore** — build once, reuse across restarts:
+
+```python
+index = MembrainShardedIndex.build(dimension=128, ids=ids, vectors=vectors)
+open("idx.b64", "w").write(index.save())
+
+# later
+index = MembrainShardedIndex.load(open("idx.b64").read())
+```
+
+**Recall-latency tradeoff** — start with `nprobe=2`; raise it until recall is acceptable.
+
+**Periodic rebalancing** — call `rebalance()` after large incremental inserts skew the centroids.
+
+## When to use what
+
+- **Up to a few million vectors, single node** — `MembrainIndex` (plain HNSW).
+- **Tens of millions, single node** — `MembrainShardedIndex`.
+- **Beyond a single node / need replication** — [`MembrainDistributedIndex`](/api-reference/distributed-index).
+
+## See also
+
+- [MemscaleDB sharded](/memscaledb/sharded) — centroid routing details.

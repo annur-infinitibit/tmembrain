@@ -1,0 +1,320 @@
+---
+title: Introduction
+description: Complete documentation for the Membrain memory system
+---
+
+# Membrain Documentation
+
+Membrain is a high-performance memory layer designed specifically for Large Language Models (LLMs). Give your LLM applications persistent memory, context retention across sessions, and semantic knowledge retrieval. Built with a Rust core for speed and reliability.
+
+## Getting Started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Get up and running in 5 minutes
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/quickstart#core-concepts">
+    Understanding memory types
+  </Card>
+  <Card title="Python API" icon="python" href="/api-reference/python-api">
+    Python API documentation
+  </Card>
+  <Card title="JavaScript API" icon="js" href="/api-reference/javascript-api">
+    JavaScript/TypeScript API
+  </Card>
+</CardGroup>
+
+## Features
+
+### Memory Types
+
+<AccordionGroup>
+  <Accordion title="Episodic Memory">
+    - **Events** - Timestamped occurrences
+    - **Observations** - General observations
+    - **Preferences** - User/agent preferences
+  </Accordion>
+
+  <Accordion title="Semantic Memory">
+    - **Facts** - Factual statements with confidence
+    - **Concepts** - Definitions and explanations
+    - **Entities** - Named entity references
+  </Accordion>
+
+  <Accordion title="Procedural Memory">
+    - **Workflows** - Multi-step procedures
+    - **Skills** - Agent capabilities
+    - **Patterns** - Recognized patterns
+  </Accordion>
+
+  <Accordion title="Agent State">
+    - **Goals** - High-level objectives
+    - **Tasks** - Actionable items
+  </Accordion>
+</AccordionGroup>
+
+### Core Capabilities
+
+- **Semantic Search** - Vector similarity search
+- **Graph Traversal** - Multi-hop relationship queries
+- **Automatic Deduplication** - Merge similar memories
+- **Confidence Scoring** - Track certainty levels
+- **Multi-Language Support** - Python and JavaScript bindings
+- **Type Safety** - Strong typing in all languages
+- **Performance** - Optimized Rust core
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="LLM Chatbots with Memory" icon="comments">
+    - Remember user conversations across sessions
+    - Retrieve relevant past interactions
+    - Maintain user preferences and context
+    - Build truly conversational AI
+  </Card>
+
+  <Card title="RAG (Retrieval Augmented Generation)" icon="database">
+    - Store and retrieve document embeddings
+    - Semantic search for relevant context
+    - Enhance LLM responses with facts
+    - Build knowledge-grounded AI systems
+  </Card>
+
+  <Card title="AI Agents & Assistants" icon="robot">
+    - Long-term memory for LLM agents
+    - Track goals, tasks, and progress
+    - Learn from past interactions
+    - Maintain workflow knowledge
+  </Card>
+
+  <Card title="Multi-Agent LLM Systems" icon="users">
+    - Shared memory across multiple LLM instances
+    - Collaborative AI teams
+    - Distributed knowledge base
+    - Cross-agent learning and coordination
+  </Card>
+</CardGroup>
+
+## Quick Example: LLM with Memory
+
+<CodeGroup>
+```python Python with OpenAI
+from membrain import MembrainClient
+from openai import OpenAI
+
+# Initialize
+memory = MembrainClient()
+llm = OpenAI()
+
+# Store conversation history and facts
+memory.store_event("chat", "User asked about Rust memory safety")
+memory.store_fact("Rust uses ownership to prevent memory bugs", 0.95)
+
+# Retrieve relevant context
+user_msg = "Tell me about Rust's safety features"
+context = memory.search(user_msg, limit=3)
+
+# Build LLM prompt with memory
+context_str = "\n".join([m.content for m in context.memories])
+response = llm.chat.completions.create(
+    model="gpt-4",
+    messages=[
+        {"role": "system", "content": f"Context:\n{context_str}"},
+        {"role": "user", "content": user_msg}
+    ]
+)
+
+# Store the new interaction
+memory.store_observation(f"Explained Rust safety features")
+print(response.choices[0].message.content)
+
+memory.close()
+```
+
+```javascript JavaScript with LangChain
+import { MembrainClient } from 'membrain';
+import { ChatOpenAI } from 'langchain/chat_models/openai';
+
+// Initialize
+const memory = new MembrainClient();
+const llm = new ChatOpenAI({ modelName: 'gpt-4' });
+
+// Store facts for LLM context
+memory.storeFact("TypeScript adds static typing to JavaScript", 0.95);
+memory.storeEvent("chat", "User learning TypeScript");
+
+// Retrieve memory for LLM
+const userMsg = "How does TypeScript improve code quality?";
+const context = memory.search(userMsg, 3);
+const contextStr = context.memories.map(m => m.content).join('\n');
+
+// Generate LLM response with memory
+const response = await llm.call([
+  { role: 'system', content: `Context:\n${contextStr}` },
+  { role: 'user', content: userMsg }
+]);
+
+// Store interaction
+memory.storeObservation("Discussed TypeScript benefits");
+console.log(response);
+
+memory.close();
+```
+</CodeGroup>
+
+## Configuration
+
+Common configuration options:
+
+```python
+config = {
+    # Storage
+    "max_memories": 100000,
+    "storage_path": "/data/membrain",
+
+    # Embeddings
+    "embedding_dim": 384,
+    "similarity_threshold": 0.85,
+
+    # Graph
+    "hidden_dim": 128,
+    "graph_embedding_dim": 16,
+
+    # Performance
+    "compression_enabled": True,
+    "index_refresh_interval": 60,
+}
+```
+
+<Info>
+  See the [Quickstart guide](/quickstart#configuration) for more configuration details.
+</Info>
+
+## MemscaleDB Vector Database
+
+Membrain includes **MemscaleDB**, a standalone vector database with six index types:
+
+- **HNSW** -- Multi-layer graph for dynamic inserts (default)
+- **Flat** -- Brute-force exact search for small datasets
+- **IVF** -- Partition-based search for large batch-built datasets
+- **LSH** -- Hash-based search for high-dimensional streaming data
+- **Vamana** -- DiskANN-style graph for sequential access patterns
+- **Sharded** -- Multi-shard HNSW with centroid-based routing
+
+All index types support SIMD acceleration, concurrent thread-safe variants, query caching, and observability metrics. See the [MemscaleDB overview](/memscaledb/overview) for details.
+
+## Thread Safety
+
+<Warning>
+  `MembrainClient` and `MembrainGraph` are NOT thread-safe.
+</Warning>
+
+**Solutions:**
+- Create separate instances per thread
+- Use locks for shared instances
+- Use `Concurrent*Index` classes (e.g., `ConcurrentHnswIndex`) for thread-safe vector operations
+- Use connection pooling (see [Advanced Patterns](/cookbooks/advanced-patterns))
+
+## Performance Tips
+
+<Steps>
+  <Step title="Batch Operations">
+    Store multiple memories in sequence for better performance
+  </Step>
+  <Step title="Reuse Clients">
+    Don't create/destroy clients frequently
+  </Step>
+  <Step title="Tune Similarity Threshold">
+    Balance precision vs recall for your use case
+  </Step>
+  <Step title="Prune Graphs">
+    Periodically prune low-quality edges
+  </Step>
+  <Step title="Monitor Stats">
+    Track memory counts and performance metrics
+  </Step>
+</Steps>
+
+See [Advanced Patterns](/cookbooks/advanced-patterns) for more optimization techniques.
+
+## FAQ
+
+<AccordionGroup>
+  <Accordion title="Which LLM frameworks work with Membrain?">
+    Membrain works with any LLM framework:
+    - **Python:** OpenAI SDK, Anthropic SDK, LangChain, LlamaIndex, AutoGen, CrewAI, LangGraph, Haystack
+    - **JavaScript:** LangChain.js, Vercel AI SDK, OpenAI SDK
+
+    Simply retrieve context with `search()` and inject it into your LLM prompts. See the [Integrations](/integrations/langchain) section for complete examples with LangChain, LlamaIndex, AutoGen, CrewAI, and LangGraph.
+  </Accordion>
+
+  <Accordion title="How do I get embeddings for semantic search?">
+    Use an embedding model to convert text to vectors:
+    - **Python:** `sentence-transformers`, OpenAI embeddings API
+    - **JavaScript:** `@xenova/transformers`, OpenAI embeddings API
+
+    See the [Graph Memory cookbook](/cookbooks/graph-memory#integration-with-embedding-models) for examples.
+  </Accordion>
+
+  <Accordion title="Can I use this for RAG (Retrieval Augmented Generation)?">
+    Yes! Membrain is perfect for RAG:
+    1. Store document chunks with `store_fact()`
+    2. Search relevant context with `search()`
+    3. Inject results into your LLM prompt
+    4. Generate grounded responses
+  </Accordion>
+
+  <Accordion title="How do I maintain conversation history for chatbots?">
+    Use episodic memory:
+    ```python
+    # Store each exchange
+    memory.store_event("user_message", "What is Python?")
+    memory.store_event("assistant_response", "Python is a programming language")
+
+    # Retrieve conversation context
+    history = memory.search("previous Python discussion", limit=10)
+    ```
+  </Accordion>
+
+  <Accordion title="Can I use this in production LLM applications?">
+    Yes! Membrain is production-ready:
+    - Optimized Rust core for high performance
+    - Memory-safe FFI bindings
+    - Comprehensive error handling
+    - Audit logging and compression
+    - Used in production LLM systems
+  </Accordion>
+
+  <Accordion title="How do I share memory across multiple LLM agents?">
+    All agents connect to the same Membrain instance:
+    ```python
+    memory = MembrainClient()  # Shared memory
+    agent1.memory = memory
+    agent2.memory = memory
+    ```
+    See [Multi-Agent Systems](/cookbooks/multi-agent) cookbook.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="play" href="/quickstart">
+    Start building with Membrain
+  </Card>
+  <Card title="LLM Frameworks" icon="puzzle-piece" href="/integrations/langchain">
+    LangChain, LlamaIndex, AutoGen & more
+  </Card>
+  <Card title="Vector Databases" icon="database" href="/integrations/vector-databases">
+    Pluggable vector backends
+  </Card>
+  <Card title="Cookbooks" icon="book-open" href="/cookbooks/basic-usage">
+    Practical examples and patterns
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/advanced/architecture">
+    System design and internals
+  </Card>
+  <Card title="Contributing" icon="code-pull-request" href="https://github.com/membrain/membrain/blob/main/CONTRIBUTING.md">
+    Contribute to the project
+  </Card>
+</CardGroup>

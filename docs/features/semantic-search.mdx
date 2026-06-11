@@ -1,0 +1,164 @@
+---
+title: Semantic Search
+description: Vector similarity search for LLM context retrieval
+icon: magnifying-glass
+---
+
+# Semantic Search
+
+`client.search(query, limit)` runs a vector similarity search over every memory type and returns the top matches. Use it to pull relevant context into an LLM prompt.
+
+Under the hood: HNSW index, SIMD-accelerated, configurable similarity threshold.
+
+## Basic search
+
+<CodeGroup>
+```python Python
+client.store_fact("Python is dynamically typed", 0.9)
+client.store_fact("Rust has zero-cost abstractions", 0.95)
+client.store_fact("JavaScript runs in browsers", 0.85)
+
+results = client.search("Tell me about Python", limit=3)
+for m in results.memories:
+    print(f"{m.score:.3f}  {m.content}")
+```
+
+```javascript JavaScript
+client.storeFact("Python is dynamically typed", 0.9);
+client.storeFact("Rust has zero-cost abstractions", 0.95);
+client.storeFact("JavaScript runs in browsers", 0.85);
+
+const results = client.search("Tell me about Python", 3);
+for (const m of results.memories) {
+  console.log(`${m.score.toFixed(3)}  ${m.content}`);
+}
+```
+</CodeGroup>
+
+## RAG with an LLM
+
+Retrieve top-k, join as context, hand to the model.
+
+<CodeGroup>
+```python Python
+from openai import OpenAI
+llm = OpenAI()
+
+docs = [
+    "Rust's ownership system prevents data races at compile time",
+    "Rust has no garbage collector but stays memory safe",
+    "The borrow checker enforces Rust's ownership rules",
+]
+for d in docs:
+    client.store_fact(d, confidence=0.9)
+
+question = "How does Rust ensure memory safety?"
+ctx = "\n".join(m.content for m in client.search(question, limit=3).memories)
+
+reply = llm.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": f"Answer from this context:\n{ctx}"},
+        {"role": "user", "content": question},
+    ],
+)
+print(reply.choices[0].message.content)
+```
+
+```javascript JavaScript
+import OpenAI from "openai";
+const llm = new OpenAI();
+
+for (const d of [
+  "Rust's ownership system prevents data races at compile time",
+  "Rust has no garbage collector but stays memory safe",
+  "The borrow checker enforces Rust's ownership rules",
+]) client.storeFact(d, 0.9);
+
+const question = "How does Rust ensure memory safety?";
+const ctx = client.search(question, 3).memories.map(m => m.content).join("\n");
+
+const reply = await llm.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [
+    { role: "system", content: `Answer from this context:\n${ctx}` },
+    { role: "user", content: question },
+  ],
+});
+console.log(reply.choices[0].message.content);
+```
+</CodeGroup>
+
+## Search with filters
+
+Restrict by memory type, time, or custom metadata:
+
+<CodeGroup>
+```python Python
+results = client.search_with_filters(
+    query="deployment",
+    memory_types=["workflow", "pattern"],
+    limit=5,
+)
+```
+
+```javascript JavaScript
+const results = client.searchWithFilters({
+  query: "deployment",
+  memory_types: ["workflow", "pattern"],
+  limit: 5,
+});
+```
+</CodeGroup>
+
+## Search by precomputed embedding
+
+Bring your own embedder — any model that outputs a float vector of the configured dimension:
+
+<CodeGroup>
+```python Python
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+embedding = model.encode("machine learning frameworks").tolist()
+results = client.search_by_embedding(embedding, limit=5)
+```
+
+```javascript JavaScript
+import { pipeline } from "@xenova/transformers";
+const embedder = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
+
+const out = await embedder("machine learning frameworks", { pooling: "mean", normalize: true });
+const results = client.searchByEmbedding(Array.from(out.data), 5);
+```
+</CodeGroup>
+
+## Tuning
+
+| Config key | Default | Effect |
+|---|---|---|
+| `similarity_threshold` | `0.85` | Lower = more diverse, higher recall; higher = stricter, higher precision. |
+| `embedding_dim` | `1536` | Must match your embedder. |
+
+```python
+client = MembrainClient({"similarity_threshold": 0.75})
+```
+
+## Improve quality with a reranker
+
+Two-step retrieval: wide search, then narrow with a reranker.
+
+```python
+from membrain import CohereReranker
+
+candidates = client.search(query, limit=30)
+top = CohereReranker(api_key="...").rerank(query, candidates, top_k=5)
+```
+
+See [Rerankers](/api-reference/rerankers).
+
+## See also
+
+- [Rerankers](/api-reference/rerankers) — cross encoder and LLM reranking.
+- [Vector backends](/api-reference/vector-backends) — swap the default HNSW for Qdrant, Pinecone, etc.
+- [Search & Query reference](/api-reference/search-query) — every `search*` method.

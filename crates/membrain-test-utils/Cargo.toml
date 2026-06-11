@@ -1,0 +1,34 @@
+[package]
+name = "membrain-test-utils"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[features]
+default = []
+conflict = ["dep:membrain-conflict"]
+http-server = [
+    "dep:tokio",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:http-body-util",
+    "dep:bytes",
+    "dep:futures-util",
+]
+
+[dependencies]
+membrain-core = { workspace = true }
+membrain-conflict = { workspace = true, optional = true }
+async-trait = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, optional = true }
+hyper = { workspace = true, optional = true }
+hyper-util = { workspace = true, optional = true }
+http-body-util = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+
+[lints]
+workspace = true

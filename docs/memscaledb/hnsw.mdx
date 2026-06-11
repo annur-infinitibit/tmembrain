@@ -1,0 +1,474 @@
+---
+title: MemscaleDB HNSW
+description: Hierarchical Navigable Small World graph index with SIMD acceleration, product quantization, caching, persistence, and observability
+icon: bolt
+---
+
+# MemscaleDB HNSW
+
+MemscaleDB's HNSW index builds a multi-layer navigable graph for fast approximate nearest-neighbor search. It supports incremental insert/delete, configurable distance metrics, product quantization, query caching, and persistent storage with write-ahead logging. HNSW is the default and best general-purpose index for most workloads.
+
+<CardGroup cols={2}>
+  <Card title="Dynamic Inserts" icon="plus" color="#10b981">
+    Add and remove vectors without rebuilding the index. O(log n) insert complexity.
+  </Card>
+  <Card title="SIMD Acceleration" icon="microchip">
+    Auto-detected AVX2/SSE2 SIMD for distance calculations, PQ lookups, and batch operations -- up to 8x throughput.
+  </Card>
+  <Card title="Product Quantization" icon="compress">
+    Compress vectors into compact codes for faster approximate distance computation on large indices.
+  </Card>
+  <Card title="Persistence" icon="hard-drive">
+    Binary format, memory-mapped read-only indices, and write-ahead log for crash recovery.
+  </Card>
+</CardGroup>
+
+## Usage
+
+<CodeGroup>
+```python Python
+from membrain import MembrainIndex
+
+index = MembrainIndex(dimension=1536)
+
+index.add("doc-1", embedding_1)
+index.add("doc-2", embedding_2)
+
+results = index.search(query_embedding, k=5)
+for r in results:
+    print(f"{r['id']}  distance={r['distance']:.4f}")
+
+index.close()
+```
+
+```javascript JavaScript
+import { MembrainIndex } from "membrain";
+
+const index = new MembrainIndex(1536);
+
+index.add("doc-1", embedding1);
+index.add("doc-2", embedding2);
+
+const results = index.search(queryEmbedding, 5);
+for (const r of results) {
+  console.log(`${r.id}  distance=${r.distance.toFixed(4)}`);
+}
+
+index.close();
+```
+
+```rust Rust
+use memscaledb::{HnswIndex, HnswConfig, VectorIndex, VectorId};
+
+let mut index = HnswIndex::new(1536);
+
+index.add(VectorId::new(), &embedding_1)?;
+index.add(VectorId::new(), &embedding_2)?;
+
+let results = index.search(&query_embedding, 5)?;
+for r in &results {
+    println!("{}  distance={:.4}", r.id, r.distance);
+}
+```
+</CodeGroup>
+
+## Configuration
+
+| Parameter | Default | Description |
+|---|---|---|
+| `m` | 16 | Max bidirectional connections per node per layer. Higher values improve recall at the cost of memory and insert speed. |
+| `m0` | 32 (2 * m) | Max connections at layer 0. Usually set to `2 * m`. |
+| `ef_construction` | 200 | Beam width during index construction. Higher values build a better graph but slow down inserts. |
+| `ef_search` | 100 | Beam width during search. Higher values improve recall at the cost of latency. |
+| `max_ef_search` | 400 (4 * ef_search) | Maximum ef after dynamic retry. When a search returns fewer than `k` results, ef is doubled and retried up to this cap. |
+| `ml` | 1 / ln(m) | Level generation multiplier. Controls the layer distribution. |
+| `distance_metric` | Cosine | Distance function: `Cosine` or `Euclidean`. |
+| `compaction_threshold` | 0.2 | Fraction of deleted nodes that triggers automatic graph compaction. |
+| `seed` | 42 | Seed for deterministic, reproducible level assignment. |
+| `cache_config.capacity` | 1024 | Maximum number of cached query results. |
+| `cache_config.enabled` | true | Whether the LRU query cache is active. |
+
+### Custom Configuration
+
+<CodeGroup>
+```python Python
+from membrain import MembrainIndex
+
+index = MembrainIndex(config={
+    "dimension": 1536,
+    "m": 32,
+    "ef_construction": 400,
+    "ef_search": 200,
+    "distance_metric": "Cosine",
+})
+```
+
+```javascript JavaScript
+import { MembrainIndex } from "membrain";
+
+const index = new MembrainIndex(undefined, {
+  dimension: 1536,
+  m: 32,
+  ef_construction: 400,
+  ef_search: 200,
+  distance_metric: "Cosine",
+});
+```
+
+```rust Rust
+use memscaledb::{HnswIndex, HnswConfig, DistanceMetric, CacheConfig};
+
+let config = HnswConfig {
+    m: 32,
+    m0: 64,
+    ef_construction: 400,
+    ef_search: 200,
+    max_ef_search: 800,
+    distance_metric: DistanceMetric::Cosine,
+    cache_config: CacheConfig {
+        capacity: 2048,
+        enabled: true,
+    },
+    ..HnswConfig::default()
+};
+let mut index = HnswIndex::with_config(1536, config);
+```
+</CodeGroup>
+
+## Distance Metrics
+
+| Metric | Formula | Score range | Best for |
+|---|---|---|---|
+| **Cosine** (default) | `1 - cosine_similarity` | 0 (identical) to 2 (opposite) | LLM embeddings (OpenAI, Cohere, BGE, etc.) |
+| **Euclidean** | L2 distance | 0 (identical) to unbounded | Spatial/geometric data |
+
+Scores returned by `search()` are always normalized: higher = more similar.
+
+- **Cosine**: `score = 1 - distance` (range 0..1)
+- **Euclidean**: `score = 1 / (1 + distance)` (range 0..1)
+
+### SIMD Acceleration
+
+Distance calculations are automatically accelerated using SIMD instructions when available:
+
+| Instruction Set | Elements / cycle | Auto-detected |
+|---|---|---|
+| **AVX2** | 8 x f32 | Yes (x86_64) |
+| **SSE2** | 4 x f32 | Yes (x86_64) |
+| **Scalar** | 1 x f32 | Fallback on all platforms |
+
+Detection happens once at startup via `is_x86_feature_detected!`. No configuration needed.
+
+## Pre-filtering
+
+MemscaleDB supports efficient in-traversal filtering. Filtered nodes are excluded from results but their neighbors are still explored, maintaining graph connectivity and recall quality.
+
+```rust
+use memscaledb::{HnswIndex, VectorIndex};
+use std::collections::HashSet;
+
+let allowed_ids: HashSet<VectorId> = /* your allowed set */;
+
+let results = index.search_with_filter(
+    &query_embedding,
+    10,
+    &|id| allowed_ids.contains(id),
+)?;
+```
+
+When filtering is active, the search beam width is automatically doubled (2x `ef_search`) and dynamic retry kicks in to compensate for filtered-out candidates.
+
+<Note>
+  For very selective filters (less than 5% pass rate), you may want to increase `ef_search` or `max_ef_search` in the config to ensure enough candidates survive filtering.
+</Note>
+
+## Batch Search
+
+Search multiple queries in parallel using Rayon. Each query runs on a separate thread.
+
+```rust
+use memscaledb::{HnswIndex, BatchSearch};
+
+let queries: Vec<Embedding> = /* your queries */;
+let results = index.batch_search(&queries, 10);
+
+// With filtering
+let results = index.batch_search_with_filter(
+    &queries,
+    10,
+    &|id| allowed_ids.contains(id),
+);
+```
+
+The `BatchSearch` trait is automatically implemented for all `VectorIndex` types, including `CompositeIndex`.
+
+## Query Caching
+
+An LRU cache stores recent search results keyed by query vector + k. Cache hits skip the graph traversal entirely.
+
+- **Automatic invalidation**: The cache is cleared on every `add()` and `remove()` call.
+- **Poisoned mutex handling**: If the cache mutex is poisoned (rare), cache operations are silently skipped -- search still works.
+- **Disabled by default**: Set `cache_config.enabled = false` to disable.
+
+## Product Quantization
+
+Product quantization (PQ) compresses vectors into compact codes for faster approximate distance computation. This is useful for very large indices where memory is a concern.
+
+```rust
+use memscaledb::{HnswIndex, PqConfig};
+
+let mut index = HnswIndex::new(128);
+// ... add vectors ...
+
+// Train PQ from the current vectors
+index.enable_pq(PqConfig {
+    num_subspaces: 16,           // Split 128-dim into 16 x 8-dim
+    num_centroids: 256,          // 256 centroids per subspace (1 byte each)
+    training_iterations: 20,     // K-means iterations
+    training_sample_size: 10_000, // Max vectors to sample for training
+});
+```
+
+PQ uses asymmetric distance computation (ADC) for initial candidate scoring, then re-ranks the top-k results with exact distances from the original vectors.
+
+| Parameter | Default | Description |
+|---|---|---|
+| `num_subspaces` | 8 | Number of subspaces. Vector dimension must be divisible by this. |
+| `num_centroids` | 256 | Centroids per subspace (max 256 for u8 codes). |
+| `training_iterations` | 20 | K-means iterations for codebook training. |
+| `training_sample_size` | 10,000 | Max vectors sampled for training. |
+
+## Persistence
+
+### MessagePack Serialization
+
+The HNSW graph can be serialized to bytes and restored without re-indexing.
+
+```rust
+use memscaledb::HnswIndex;
+
+// Save the graph
+let bytes = index.to_bytes()?;
+std::fs::write("index.msgpack", &bytes)?;
+
+// Restore later -- instant, no re-indexing
+let bytes = std::fs::read("index.msgpack")?;
+let index = HnswIndex::from_bytes(&bytes)?;
+```
+
+### Binary Format
+
+A flat binary format is available for large indices. It writes vectors contiguously for cache-friendly access.
+
+```rust
+use memscaledb::HnswIndex;
+
+// Write binary
+let mut file = std::fs::File::create("index.bin")?;
+index.save_binary(&mut file)?;
+```
+
+### Memory-mapped Read-only Index
+
+Load a binary index as a read-only `MmapIndex`. Vectors, graph, and metadata are loaded eagerly for fast search.
+
+```rust
+use memscaledb::MmapIndex;
+
+let read_only_index = MmapIndex::open("index.bin")?;
+let results = read_only_index.search(&query, 10)?;
+```
+
+`MmapIndex` implements `VectorIndex` but rejects `add()` and `remove()` with an error.
+
+### Write-Ahead Log (WAL)
+
+For crash recovery, enable WAL to log every insert and delete. The WAL periodically checkpoints by writing a full binary snapshot, then truncates the log.
+
+```rust
+use memscaledb::{HnswIndex, WalConfig};
+use std::path::PathBuf;
+
+let mut index = HnswIndex::new(128);
+
+index.enable_wal(WalConfig {
+    log_path: PathBuf::from("data/index.wal"),
+    checkpoint_dir: PathBuf::from("data/checkpoints"),
+    checkpoint_interval: 1000,  // Checkpoint every 1000 operations
+})?;
+
+// All add() and remove() calls are now logged to the WAL
+```
+
+Recovery loads the latest checkpoint and replays subsequent WAL entries:
+
+```rust
+use memscaledb::persistence::wal::{WriteAheadLog, WalConfig};
+
+let config = WalConfig {
+    log_path: PathBuf::from("data/index.wal"),
+    checkpoint_dir: PathBuf::from("data/checkpoints"),
+    checkpoint_interval: 1000,
+};
+
+let recovered_index = WriteAheadLog::recover(&config, 128)?;
+```
+
+<Note>
+  The serialized snapshot includes the full graph structure, all vectors, configuration, and node state. Restoring is O(n) deserialization, not O(n log n) reconstruction.
+</Note>
+
+## Observability
+
+MemscaleDB tracks operation counters with atomic increments (zero overhead in hot paths).
+
+```rust
+let snapshot = index.metrics();
+
+println!("Searches:     {}", snapshot.searches);
+println!("Inserts:      {}", snapshot.inserts);
+println!("Deletes:      {}", snapshot.deletes);
+println!("Compactions:  {}", snapshot.compactions);
+println!("Cache hits:   {}", snapshot.cache_hits);
+println!("Cache misses: {}", snapshot.cache_misses);
+println!("Distance ops: {}", snapshot.distance_computations);
+```
+
+All counters use `Relaxed` atomic ordering for minimal performance impact. Key operations are also instrumented with `tracing::info_span!` for integration with your observability stack.
+
+## How It Works
+
+### Incremental Insert
+
+Each `add()` inserts a single node into the graph by navigating the hierarchical layers and connecting to the nearest neighbors. No full-graph rebuild is triggered. Insert complexity is O(log n) with the graph size.
+
+### Soft Delete with Compaction
+
+`remove()` marks a node as deleted (tombstone) rather than rebuilding the graph. Deleted nodes are skipped during search. When the fraction of deleted nodes exceeds `compaction_threshold` (default 20%), the graph is automatically compacted -- rebuilt from scratch without the tombstoned nodes.
+
+You can also trigger compaction manually:
+
+```rust
+index.compact();
+```
+
+### Dynamic ef_search
+
+When a search returns fewer than `k` results (common with aggressive filtering or sparse graphs), the beam width is automatically doubled and the search is retried. This continues up to `max_ef_search` (default: 4x `ef_search`).
+
+### Heuristic Neighbor Selection
+
+During insertion and pruning, neighbors are selected using a diversity heuristic rather than simple nearest-neighbor selection. The heuristic prefers candidates that are closer to the target node than to any already-selected neighbor. This improves graph navigability for high-dimensional data (like LLM embeddings with 768--3072 dimensions).
+
+### Upsert Semantics
+
+Adding a vector with an ID that already exists in the index automatically removes the old entry and inserts the new one:
+
+```rust
+// First insert
+index.add(id, &embedding_v1)?;
+
+// Updates the embedding for the same ID
+index.add(id, &embedding_v2)?;
+
+assert_eq!(index.len(), 1);
+```
+
+## Concurrent Access
+
+Use `ConcurrentHnswIndex` when multiple threads need to search and modify the index at the same time. Reads run in parallel; writes are serialized inside the index.
+
+<CodeGroup>
+```python Python
+import threading
+import uuid
+from membrain import ConcurrentHnswIndex
+
+index = ConcurrentHnswIndex(dimension=1536)
+
+def insert_worker():
+    index.add(str(uuid.uuid4()), [0.5] * 1536)
+
+def search_worker():
+    index.search([0.5] * 1536, k=10)
+
+threads = (
+    [threading.Thread(target=insert_worker) for _ in range(4)] +
+    [threading.Thread(target=search_worker) for _ in range(4)]
+)
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+index.close()
+```
+
+```javascript JavaScript
+import { ConcurrentHnswIndex } from "membrain";
+
+const index = new ConcurrentHnswIndex(1536);
+index.add(crypto.randomUUID(), Array(1536).fill(0.5));
+
+const results = index.search(Array(1536).fill(0.5), 10);
+index.close();
+```
+
+```rust Rust
+use memscaledb::{ConcurrentHnswIndex, ConcurrentVectorIndex, VectorId};
+use std::sync::Arc;
+use std::thread;
+
+let index = Arc::new(ConcurrentHnswIndex::new(1536));
+
+let writer = Arc::clone(&index);
+let reader = Arc::clone(&index);
+
+let write_handle = thread::spawn(move || {
+    for _ in 0..100 {
+        writer.add_concurrent(VectorId::new(), &[0.5; 1536]).expect("add");
+    }
+});
+
+let read_handle = thread::spawn(move || {
+    for _ in 0..50 {
+        let _ = reader.search(&[0.5; 1536], 10);
+    }
+});
+
+write_handle.join().expect("writer panicked");
+read_handle.join().expect("reader panicked");
+```
+</CodeGroup>
+
+See the [Concurrent Indices](/memscaledb/concurrent) page for a full reference.
+
+## When to Use HNSW
+
+| Scenario | HNSW? |
+|---|---|
+| 10k--10M vectors with dynamic inserts | Yes -- best recall-latency tradeoff |
+| Production, single process | Yes -- scales to millions with SIMD, PQ, caching, and WAL |
+| Local development and prototyping | Yes -- fastest path to a working index |
+| Metadata filtering | Yes -- in-traversal pre-filtering |
+| Batch workloads | Yes -- parallel batch search with Rayon |
+| Small datasets (under 10k) | Consider [Flat](/memscaledb/flat) -- simpler, exact recall |
+| Need hash-based approximate search | No -- use [LSH](/memscaledb/lsh) |
+| Batch-build, sequential access patterns | Consider [Vamana](/memscaledb/vamana) |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MemscaleDB Flat" icon="bullseye-arrow" href="/memscaledb/flat">
+    Brute-force exact search for small datasets and accuracy baselines
+  </Card>
+  <Card title="MemscaleDB IVF" icon="table-cells" href="/memscaledb/ivf">
+    Partition-based search for large datasets with tunable recall
+  </Card>
+  <Card title="MemscaleDB LSH" icon="hashtag" href="/memscaledb/lsh">
+    Hash-based approximate search for high-dimensional data
+  </Card>
+  <Card title="MemscaleDB Vamana" icon="circle-nodes" href="/memscaledb/vamana">
+    DiskANN-style graph for large datasets with sequential access
+  </Card>
+</CardGroup>

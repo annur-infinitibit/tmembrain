@@ -1,0 +1,270 @@
+---
+title: MemscaleDB LSH
+description: Locality-sensitive hashing for fast approximate nearest-neighbor search on high-dimensional data
+icon: hashtag
+---
+
+# MemscaleDB LSH
+
+MemscaleDB's LSH (Locality-Sensitive Hashing) index uses random hyperplane hashing to project vectors into binary hash codes. Vectors that are close in the original space are likely to share the same hash bucket. Multiple independent hash tables improve recall by increasing the probability that true neighbors are found. LSH is particularly effective for high-dimensional data where tree-based and graph-based methods struggle.
+
+<CardGroup cols={2}>
+  <Card title="Sub-Linear Search" icon="hashtag" color="#10b981">
+    Hash-based lookup is faster than linear scan -- search time depends on the number of candidates, not the total dataset size.
+  </Card>
+  <Card title="High-Dimensional Friendly" icon="chart-scatter">
+    Random hyperplane projection scales gracefully to 1536+ dimensions without the "curse of dimensionality" affecting graph methods.
+  </Card>
+  <Card title="Multi-Table Recall" icon="layer-group">
+    Multiple independent hash tables significantly improve recall. More tables = higher recall at the cost of memory.
+  </Card>
+  <Card title="Incremental Updates" icon="plus">
+    Add and remove vectors at any time without rebuilding hash tables.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+1. **Hyperplane generation**: For each hash table, `num_hyperplanes` random hyperplanes are generated from a seeded PRNG.
+2. **Hashing**: Each vector is hashed by computing the sign of its dot product with each hyperplane, producing a binary hash code packed into a 64-bit integer.
+3. **Bucket storage**: The hash code maps the vector to a bucket within each table. Vectors with the same hash code share a bucket.
+4. **Query**: The query vector is hashed in each table. All candidate vectors from matching buckets across all tables are collected and deduplicated.
+5. **Re-ranking**: Exact distances are computed for all candidates. The top-k are returned.
+
+## Usage
+
+<CodeGroup>
+```python Python
+from membrain import MembrainLshIndex
+
+# Create an LSH index
+index = MembrainLshIndex(dimension=1536)
+
+# Add vectors incrementally
+for doc_id, embedding in documents:
+    index.add(doc_id, embedding)
+
+# Search -- returns approximate nearest neighbors
+results = index.search(query_embedding, k=10)
+for r in results:
+    print(f"{r['id']}  distance={r['distance']:.4f}")
+
+index.close()
+```
+
+```javascript JavaScript
+import { MembrainLshIndex } from "membrain";
+
+const index = new MembrainLshIndex(1536);
+
+for (const [docId, embedding] of documents) {
+  index.add(docId, embedding);
+}
+
+const results = index.search(queryEmbedding, 10);
+for (const r of results) {
+  console.log(`${r.id}  distance=${r.distance.toFixed(4)}`);
+}
+
+index.close();
+```
+
+```rust Rust
+use memscaledb::{LshIndex, VectorIndex};
+
+let mut index = LshIndex::new(1536);
+
+for (id, embedding) in &documents {
+    index.add(id.clone(), embedding)?;
+}
+
+let results = index.search(&query_embedding, 10)?;
+```
+</CodeGroup>
+
+## Configuration
+
+| Parameter | Default | Description |
+|---|---|---|
+| `dimension` | **required** | Vector dimension (must match your embedding model) |
+| `num_hyperplanes` | 16 | Bits per hash code. More bits = more selective hashing (fewer candidates per bucket) |
+| `num_tables` | 8 | Number of independent hash tables. More tables = higher recall at the cost of memory |
+| `distance_metric` | `Cosine` | Distance function for re-ranking: `Cosine`, `Euclidean`, `DotProduct`, `Manhattan`, `Chebyshev` |
+| `seed` | 42 | Seed for deterministic hyperplane generation |
+| `cache_config.capacity` | 1024 | Maximum number of cached query results |
+| `cache_config.enabled` | true | Whether the LRU query cache is active |
+
+### Custom Configuration
+
+<CodeGroup>
+```python Python
+from membrain import MembrainLshIndex
+
+index = MembrainLshIndex(config={
+    "dimension": 1536,
+    "num_hyperplanes": 24,
+    "num_tables": 12,
+    "distance_metric": "Cosine",
+    "seed": 42,
+})
+```
+
+```javascript JavaScript
+import { MembrainLshIndex } from "membrain";
+
+const index = new MembrainLshIndex(undefined, {
+  dimension: 1536,
+  num_hyperplanes: 24,
+  num_tables: 12,
+  distance_metric: "Cosine",
+  seed: 42,
+});
+```
+
+```rust Rust
+use memscaledb::{LshIndex, LshConfig, DistanceMetric};
+
+let config = LshConfig {
+    num_hyperplanes: 24,
+    num_tables: 12,
+    distance_metric: DistanceMetric::Cosine,
+    seed: 42,
+    ..LshConfig::default()
+};
+let mut index = LshIndex::with_config(1536, config);
+```
+</CodeGroup>
+
+### Tuning Guidelines
+
+**num_hyperplanes** controls hash selectivity:
+- Fewer bits (8-12): Larger buckets, more candidates evaluated, higher recall, slower search
+- Default (16): Good balance for most use cases
+- More bits (24-32): Smaller buckets, fewer candidates, lower recall, faster search
+
+**num_tables** controls recall probability:
+- Fewer tables (2-4): Lower memory, lower recall
+- Default (8): Good recall for most workloads
+- More tables (12-16): Near-perfect recall at 2-4x memory cost
+
+<Note>
+  The memory cost of LSH scales as `O(num_tables * N)` where N is the number of vectors. Each vector is stored once in the main storage, but its index appears in `num_tables` hash buckets.
+</Note>
+
+## Operations
+
+### Filtered Search
+
+Restrict results to a subset of vector IDs. The filter is applied during candidate re-ranking.
+
+<CodeGroup>
+```python Python
+results = index.search_with_filter(
+    query_embedding, k=10,
+    allowed_ids=[vec_id_1, vec_id_3, vec_id_5],  # UUIDs of previously added vectors
+)
+```
+
+```javascript JavaScript
+const results = index.searchWithFilter(
+  queryEmbedding, 10,
+  [vecId1, vecId3, vecId5],  // UUIDs of previously added vectors
+);
+```
+</CodeGroup>
+
+### Batch Search
+
+Run multiple queries in parallel.
+
+<CodeGroup>
+```python Python
+queries = [query1, query2, query3]
+batch_results = index.batch_search(queries, k=10)
+```
+
+```javascript JavaScript
+const batchResults = index.batchSearch([query1, query2, query3], 10);
+```
+</CodeGroup>
+
+### Observability
+
+<CodeGroup>
+```python Python
+metrics = index.metrics()
+print(f"Searches: {metrics['searches']}")
+print(f"Inserts: {metrics['inserts']}")
+```
+
+```javascript JavaScript
+const m = index.metrics();
+console.log(`Searches: ${m.searches}`);
+console.log(`Inserts: ${m.inserts}`);
+```
+</CodeGroup>
+
+## Concurrent Access
+
+`ConcurrentLshIndex` allows safe concurrent reads and writes. Multiple threads can search while others insert without any external locking.
+
+<CodeGroup>
+```python Python
+import threading
+import uuid
+from membrain import ConcurrentLshIndex
+
+index = ConcurrentLshIndex(dimension=1536)
+
+def worker():
+    index.add(str(uuid.uuid4()), [0.5] * 1536)
+    results = index.search([0.5] * 1536, k=10)
+
+threads = [threading.Thread(target=worker) for _ in range(8)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+index.close()
+```
+
+```javascript JavaScript
+import { ConcurrentLshIndex } from "membrain";
+
+const index = new ConcurrentLshIndex(1536);
+index.add(crypto.randomUUID(), Array(1536).fill(0.5));
+const results = index.search(Array(1536).fill(0.5), 10);
+index.close();
+```
+</CodeGroup>
+
+See the [Concurrent Indices](/memscaledb/concurrent) page for a full reference.
+
+## When to Use MemscaleDB LSH
+
+| Scenario | LSH Index? |
+|---|---|
+| High-dimensional embeddings (1536+) | Yes -- random projection handles high dimensions well |
+| Need fast approximate search, can tolerate ~80-90% recall | Yes -- hash-based lookup is fast |
+| Need exact recall (100%) | No -- use [Flat](/memscaledb/flat) |
+| Medium datasets with best recall | No -- use [HNSW](/memscaledb/hnsw) or [Vamana](/memscaledb/vamana) |
+| Streaming inserts with no training phase | Yes -- no build step required, add vectors at any time |
+| Memory-constrained environment | No -- multi-table storage adds overhead |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="MemscaleDB Flat" icon="bullseye-arrow" href="/memscaledb/flat">
+    Exact brute-force search for accuracy baselines
+  </Card>
+  <Card title="MemscaleDB IVF" icon="table-cells" href="/memscaledb/ivf">
+    Partition-based search for large datasets
+  </Card>
+  <Card title="MemscaleDB HNSW" icon="bolt" href="/memscaledb/hnsw">
+    Graph-based approximate search with high recall
+  </Card>
+  <Card title="MemscaleDB Vamana" icon="circle-nodes" href="/memscaledb/vamana">
+    DiskANN-style graph for very large datasets
+  </Card>
+</CardGroup>

@@ -1,0 +1,605 @@
+---
+title: AI Agents with Memory
+description: Build autonomous AI agents that learn and remember
+icon: robot
+---
+
+# Build AI Agents with Long-Term Memory
+
+Create autonomous AI agents that remember past actions, learn from experience, and maintain goals over time.
+
+## What You'll Build
+
+An AI agent that:
+- Maintains goals and tasks
+- Remembers past actions and outcomes
+- Learns workflows and patterns
+- Makes decisions based on experience
+
+## Prerequisites
+
+<CodeGroup>
+```bash Python
+pip install membrain openai
+```
+
+```bash JavaScript
+npm install membrain openai
+```
+</CodeGroup>
+
+## Step 1: Basic Agent with Memory
+
+<CodeGroup>
+```python Python
+from membrain import MembrainClient
+from openai import OpenAI
+import json
+
+class MemoryAgent:
+    def __init__(self, name):
+        self.name = name
+        self.memory = MembrainClient()
+        self.llm = OpenAI()
+
+    def set_goal(self, goal):
+        """Set agent's goal"""
+        result = self.memory.store_goal(goal)
+        print(f"Goal set: {goal}")
+        return result.id
+
+    def remember_skill(self, skill_name, description):
+        """Store a new skill"""
+        self.memory.store_skill(skill_name, description)
+        print(f"Learned skill: {skill_name}")
+
+    def act(self, situation):
+        """Decide action based on goal and experience"""
+
+        # Retrieve relevant context
+        goals = self.memory.search("goal", limit=3, memory_type="goal")
+        skills = self.memory.search(situation, limit=5, memory_type="skill")
+        past_actions = self.memory.search(situation, limit=5, memory_type="event")
+
+        # Build decision prompt
+        context = f"""
+Goals:
+{chr(10).join([g.content for g in goals.memories])}
+
+Available skills:
+{chr(10).join([s.content for s in skills.memories])}
+
+Past similar situations:
+{chr(10).join([p.content for p in past_actions.memories])}
+"""
+
+        prompt = f"""You are {self.name}, an AI agent.
+
+{context}
+
+Current situation: {situation}
+
+Decide what action to take. Respond with JSON:
+{{"action": "...", "reasoning": "..."}}"""
+
+        response = self.llm.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        # Parse action
+        try:
+            decision = json.loads(response.choices[0].message.content)
+            action = decision["action"]
+
+            # Remember this action
+            self.memory.store_event(
+                "action_taken",
+                f"{self.name} in '{situation}': {action}"
+            )
+
+            return action
+        except:
+            return "Unable to decide on action"
+
+    def learn_from_outcome(self, action, situation, outcome, success):
+        """Learn from action outcomes"""
+
+        # Store as observation
+        obs = f"Action '{action}' in '{situation}' → {outcome} ({'success' if success else 'failure'})"
+        self.memory.store_observation(obs)
+
+        # If successful, store as pattern
+        if success:
+            self.memory.store_pattern(
+                f"{situation}_pattern",
+                f"When {situation}, action '{action}' leads to {outcome}"
+            )
+
+    def close(self):
+        self.memory.close()
+
+# Usage
+agent = MemoryAgent("CodeHelper")
+
+# Set goals
+agent.set_goal("Help users write better code")
+
+# Teach skills
+agent.remember_skill("code_review", "Analyze code for bugs and improvements")
+agent.remember_skill("refactoring", "Improve code structure and readability")
+
+# Agent encounters situation
+action = agent.act("User's code has repeated logic")
+print(f"Agent decided: {action}")
+
+# Learn from outcome
+agent.learn_from_outcome(
+    action="Suggest extracting repeated code into a function",
+    situation="User's code has repeated logic",
+    outcome="Code became more maintainable",
+    success=True
+)
+
+# Next time, agent remembers this pattern
+action2 = agent.act("User's code has repeated logic")
+print(f"Agent remembers and suggests: {action2}")
+
+agent.close()
+```
+</CodeGroup>
+
+## Step 2: Goal-Directed Agent
+
+<CodeGroup>
+```python Python
+class GoalDirectedAgent:
+    def __init__(self, name):
+        self.name = name
+        self.memory = MembrainClient()
+        self.llm = OpenAI()
+        self.current_goal_id = None
+
+    def plan(self, goal):
+        """Break down goal into tasks"""
+        self.current_goal_id = self.memory.store_goal(goal).id
+
+        # Use LLM to generate tasks
+        prompt = f"""Break down this goal into specific tasks:
+Goal: {goal}
+
+List 3-5 concrete tasks. Output as JSON array:
+["task1", "task2", ...]"""
+
+        response = self.llm.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        try:
+            tasks = json.loads(response.choices[0].message.content)
+            task_ids = []
+
+            for task in tasks:
+                task_id = self.memory.store_task(task).id
+                task_ids.append(task_id)
+                print(f"Task created: {task}")
+
+            return task_ids
+        except:
+            print("Failed to create plan")
+            return []
+
+    def execute_tasks(self):
+        """Execute pending tasks"""
+        # Get all tasks
+        tasks = self.memory.search("task", limit=20, memory_type="task")
+
+        if not tasks.memories:
+            print("No tasks to execute")
+            return
+
+        for task_mem in tasks.memories:
+            task = task_mem.content
+
+            # Check if already completed
+            completed = self.memory.search(
+                f"completed {task}",
+                limit=1,
+                memory_type="observation"
+            )
+
+            if completed.memories:
+                print(f"Task already completed: {task}")
+                continue
+
+            # Execute task
+            print(f"Executing: {task}")
+            result = self._execute_single_task(task)
+
+            # Mark as completed
+            self.memory.store_observation(
+                f"{self.name} completed task: {task} → {result}"
+            )
+
+    def _execute_single_task(self, task):
+        """Execute a single task"""
+        # Retrieve relevant skills
+        skills = self.memory.search(task, limit=3, memory_type="skill")
+        patterns = self.memory.search(task, limit=3, memory_type="pattern")
+
+        context = f"""
+Available skills:
+{chr(10).join([s.content for s in skills.memories])}
+
+Known patterns:
+{chr(10).join([p.content for p in patterns.memories])}
+"""
+
+        prompt = f"""{context}
+
+Task: {task}
+
+How would you complete this task? Be specific."""
+
+        response = self.llm.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        return response.choices[0].message.content
+
+    def close(self):
+        self.memory.close()
+
+# Usage
+agent = GoalDirectedAgent("ProjectManager")
+
+# Teach some skills
+agent.memory.store_skill("planning", "Break down complex projects")
+agent.memory.store_skill("coding", "Write Python code")
+agent.memory.store_skill("testing", "Write and run tests")
+
+# Set goal and plan
+tasks = agent.plan("Build a REST API for user management")
+
+# Execute tasks
+agent.execute_tasks()
+
+agent.close()
+```
+</CodeGroup>
+
+## Step 3: Learning Agent
+
+<CodeGroup>
+```python Python
+class LearningAgent:
+    def __init__(self, name):
+        self.name = name
+        self.memory = MembrainClient()
+        self.llm = OpenAI()
+
+    def observe(self, observation):
+        """Store an observation"""
+        self.memory.store_observation(f"{self.name}: {observation}")
+
+    def reflect(self):
+        """Reflect on recent experiences and extract learnings"""
+
+        # Get recent observations
+        recent = self.memory.search(
+            self.name,
+            limit=20,
+            memory_type="observation"
+        )
+
+        if not recent.memories:
+            return "No experiences to reflect on"
+
+        # Use LLM to extract patterns
+        obs_text = "\n".join([m.content for m in recent.memories])
+
+        prompt = f"""Review these observations and extract key learnings:
+
+{obs_text}
+
+What patterns or insights can you identify? Output as JSON:
+{{
+  "patterns": ["pattern1", "pattern2", ...],
+  "insights": ["insight1", "insight2", ...]
+}}"""
+
+        response = self.llm.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        try:
+            learnings = json.loads(response.choices[0].message.content)
+
+            # Store patterns
+            for pattern in learnings.get("patterns", []):
+                self.memory.store_pattern(
+                    f"{self.name}_pattern",
+                    pattern
+                )
+                print(f"Learned pattern: {pattern}")
+
+            # Store insights as facts
+            for insight in learnings.get("insights", []):
+                self.memory.store_fact(insight, confidence=0.8)
+                print(f"Gained insight: {insight}")
+
+            return learnings
+        except:
+            return "Failed to extract learnings"
+
+    def improve(self, skill_area):
+        """Identify areas for improvement"""
+
+        # Get patterns related to skill
+        patterns = self.memory.search(
+            skill_area,
+            limit=10,
+            memory_type="pattern"
+        )
+
+        # Get past outcomes
+        outcomes = self.memory.search(
+            f"{skill_area} outcome",
+            limit=10,
+            memory_type="observation"
+        )
+
+        context = f"""
+Known patterns:
+{chr(10).join([p.content for p in patterns.memories])}
+
+Past outcomes:
+{chr(10).join([o.content for o in outcomes.memories])}
+"""
+
+        prompt = f"""{context}
+
+How can {self.name} improve in: {skill_area}
+
+Provide 3 specific recommendations."""
+
+        response = self.llm.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        recommendations = response.choices[0].message.content
+
+        # Store as goal
+        self.memory.store_goal(f"Improve {skill_area}: {recommendations}")
+
+        return recommendations
+
+    def close(self):
+        self.memory.close()
+
+# Usage
+agent = LearningAgent("CodeReviewer")
+
+# Agent has experiences
+agent.observe("Reviewed code with 10 functions, found 3 bugs")
+agent.observe("Most bugs were in functions longer than 50 lines")
+agent.observe("Functions with clear names had fewer bugs")
+agent.observe("Code with tests was easier to review")
+agent.observe("Reviewed another file, long functions had issues again")
+
+# Agent reflects and learns
+learnings = agent.reflect()
+
+# Agent identifies improvement areas
+improvements = agent.improve("code review")
+print(f"Improvement plan: {improvements}")
+
+agent.close()
+```
+</CodeGroup>
+
+## Step 4: Production Agent System
+
+<CodeGroup>
+```python Python
+class ProductionAgent:
+    def __init__(self, name, role, capabilities):
+        self.name = name
+        self.role = role
+        self.memory = MembrainClient()
+        self.llm = OpenAI()
+
+        # Initialize capabilities
+        for capability in capabilities:
+            self.memory.store_skill(capability, f"{name} can {capability}")
+
+    def plan_and_execute(self, goal):
+        """Complete workflow: plan → execute → learn"""
+
+        print(f"\n=== {self.name} Planning ===")
+        tasks = self._create_plan(goal)
+
+        print(f"\n=== {self.name} Executing ===")
+        results = []
+        for task in tasks:
+            result = self._execute_task(task)
+            results.append(result)
+            self._record_outcome(task, result)
+
+        print(f"\n=== {self.name} Learning ===")
+        self._extract_learnings(goal, results)
+
+        return results
+
+    def _create_plan(self, goal):
+        """Create execution plan"""
+        self.memory.store_goal(goal)
+
+        # Get relevant experience
+        experience = self.memory.search(goal, limit=5)
+        exp_text = "\n".join([e.content for e in experience.memories])
+
+        prompt = f"""You are {self.name}, {self.role}.
+
+Past experience:
+{exp_text}
+
+Create a plan for: {goal}
+
+Output tasks as JSON array: ["task1", "task2", ...]"""
+
+        response = self.llm.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        try:
+            tasks = json.loads(response.choices[0].message.content)
+            for task in tasks:
+                self.memory.store_task(task)
+            return tasks
+        except:
+            return []
+
+    def _execute_task(self, task):
+        """Execute a single task"""
+        print(f"Executing: {task}")
+
+        # Get relevant context
+        skills = self.memory.search(task, limit=3, memory_type="skill")
+        patterns = self.memory.search(task, limit=3, memory_type="pattern")
+
+        context = f"""
+Your skills:
+{chr(10).join([s.content for s in skills.memories])}
+
+Known patterns:
+{chr(10).join([p.content for p in patterns.memories])}
+"""
+
+        prompt = f"""{context}
+
+Task: {task}
+
+Execute this task. Provide detailed output."""
+
+        response = self.llm.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        return response.choices[0].message.content
+
+    def _record_outcome(self, task, result):
+        """Record task outcome"""
+        self.memory.store_observation(
+            f"{self.name} completed: {task} → {result[:100]}..."
+        )
+
+    def _extract_learnings(self, goal, results):
+        """Extract and store learnings"""
+        summary = f"Goal: {goal}\nResults: " + "; ".join([r[:50] for r in results])
+
+        prompt = f"""Analyze this agent's performance:
+
+{summary}
+
+What patterns emerged? What worked well?
+Output JSON: {{"patterns": [...], "insights": [...]}}"""
+
+        response = self.llm.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        try:
+            learnings = json.loads(response.choices[0].message.content)
+
+            for pattern in learnings.get("patterns", []):
+                self.memory.store_pattern(f"{self.name}_workflow", pattern)
+
+            for insight in learnings.get("insights", []):
+                self.memory.store_fact(insight, confidence=0.75)
+
+            print("Extracted learnings successfully")
+        except:
+            print("Failed to extract learnings")
+
+    def close(self):
+        self.memory.close()
+
+# Usage
+agent = ProductionAgent(
+    name="DevAgent",
+    role="Software Developer",
+    capabilities=[
+        "write Python code",
+        "create tests",
+        "debug issues",
+        "refactor code"
+    ]
+)
+
+# Agent works on goal
+results = agent.plan_and_execute("Create a REST API endpoint for user login")
+
+print("\n=== Results ===")
+for i, result in enumerate(results, 1):
+    print(f"{i}. {result[:200]}...")
+
+agent.close()
+```
+</CodeGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Track Everything">
+    Store all agent actions and outcomes:
+    - Goals and tasks
+    - Actions taken and why
+    - Results and success/failure
+    - Patterns and learnings
+  </Accordion>
+
+  <Accordion title="Reflect Periodically">
+    Extract learnings from experience:
+    - After completing goals
+    - When patterns emerge
+    - After failures (especially!)
+    - On a schedule (daily, weekly)
+  </Accordion>
+
+  <Accordion title="Use Confidence Scores">
+    Track reliability of learnings:
+    - High confidence for verified patterns
+    - Lower confidence for new patterns
+    - Update confidence as patterns are confirmed
+  </Accordion>
+
+  <Accordion title="Enable Self-Improvement">
+    Agent should:
+    - Identify weak areas
+    - Set improvement goals
+    - Practice and learn
+    - Measure progress
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Multi-Agent Systems" icon="users" href="/cookbooks/multi-agent">
+    Coordinate multiple agents
+  </Card>
+  <Card title="AutoGen Integration" icon="puzzle-piece" href="/integrations/autogen">
+    Use with AutoGen framework
+  </Card>
+  <Card title="CrewAI Integration" icon="puzzle-piece" href="/integrations/crewai">
+    Use with CrewAI framework
+  </Card>
+</CardGroup>

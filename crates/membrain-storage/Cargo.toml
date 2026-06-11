@@ -1,0 +1,28 @@
+[package]
+name = "membrain-storage"
+version.workspace = true
+edition.workspace = true
+description = "Storage backends for Membrain memory system"
+
+[dependencies]
+membrain-core = { workspace = true }
+memscaledb = { workspace = true }
+tokio = { workspace = true }
+tokio-rusqlite = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+parking_lot = "0.12"
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+tempfile = "3.10"
+
+[lints]
+workspace = true

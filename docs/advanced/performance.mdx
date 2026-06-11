@@ -1,0 +1,406 @@
+---
+title: Performance Optimization
+description: Tune Membrain for maximum performance
+icon: gauge-high
+---
+
+# Performance Optimization
+
+Optimize Membrain for your specific workload and performance requirements.
+
+## Performance Characteristics
+
+<AccordionGroup>
+  <Accordion title="Storage Operations">
+    - **Insert**: O(1) for storage + O(n) for deduplication
+    - **Get by ID**: O(1) lookup
+    - **Delete**: O(1) removal
+    - **Batch insert**: Amortized O(1) per item
+  </Accordion>
+
+  <Accordion title="Search Operations">
+    - **HNSW Search**: O(log n) average case
+    - **Brute force**: O(n) for small datasets (< 10k)
+    - **SIMD acceleration**: Up to 4x faster distance computation
+  </Accordion>
+
+  <Accordion title="Graph Operations">
+    - **Add node**: O(n) checks all existing nodes
+    - **Multi-hop query**: O(k × h) where k = branching, h = hops
+    - **Prune**: O(e) where e = edges
+  </Accordion>
+</AccordionGroup>
+
+## Optimization Tips
+
+### 1. Batch Operations
+
+Process multiple memories at once for better throughput:
+
+<CodeGroup>
+```python Python
+client = MembrainClient({"batch_size": 500})
+
+# Inefficient - one at a time
+for fact in facts:
+    client.store_fact(fact, 0.9)
+
+# Better - batch internally
+facts = ["fact1", "fact2", "fact3", ...]
+for fact in facts:
+    client.store_fact(fact, 0.9)  # Batched automatically
+```
+
+```javascript JavaScript
+const client = new MembrainClient({ batch_size: 500 });
+
+// Inefficient - one at a time
+for (const fact of facts) {
+    client.storeFact(fact, 0.9);
+}
+
+// Better - batch internally
+const facts = ['fact1', 'fact2', 'fact3', ...];
+for (const fact of facts) {
+    client.storeFact(fact, 0.9);  // Batched automatically
+}
+```
+</CodeGroup>
+
+### 2. Reuse Clients
+
+Don't create/destroy clients frequently:
+
+<CodeGroup>
+```python Python
+# Bad - creates new client each time
+def process_query(query):
+    client = MembrainClient()
+    result = client.search(query, 5)
+    client.close()
+    return result
+
+# Good - reuse client
+client = MembrainClient()
+
+def process_query(query):
+    return client.search(query, 5)
+
+# Use client for many queries
+# ...
+client.close()
+```
+
+```javascript JavaScript
+// Bad - creates new client each time
+function processQuery(query) {
+    const client = new MembrainClient();
+    const result = client.search(query, 5);
+    client.close();
+    return result;
+}
+
+// Good - reuse client
+const client = new MembrainClient();
+
+function processQuery(query) {
+    return client.search(query, 5);
+}
+
+// Use client for many queries
+// ...
+client.close();
+```
+</CodeGroup>
+
+### 3. Tune Similarity Threshold
+
+Balance precision vs recall:
+
+```python
+# Strict - only very similar results (fewer, more precise)
+client = MembrainClient({"similarity_threshold": 0.95})
+
+# Relaxed - more diverse results (more results, less precise)
+client = MembrainClient({"similarity_threshold": 0.75})
+
+# Default - balanced
+client = MembrainClient({"similarity_threshold": 0.85})
+```
+
+### 4. Configure HNSW Parameters
+
+For large datasets, tune HNSW index:
+
+```python
+config = {
+    "hnsw_m": 32,  # More connections = better recall, slower insert
+    "hnsw_ef_construction": 400,  # Higher = better index quality, slower build
+    "hnsw_ef_search": 200  # Higher = better search quality, slower search
+}
+client = MembrainClient(config)
+```
+
+**Guidelines:**
+- **M**: 16 (default) for balanced, 32-64 for high recall
+- **ef_construction**: 200 (default) for balanced, 400+ for quality
+- **ef_search**: 100-200 (runtime parameter)
+
+### 5. Prune Graphs Periodically
+
+Remove low-quality edges:
+
+```python
+graph = MembrainGraph()
+
+# Add many nodes
+# ...
+
+# Prune after bulk operations
+pruned = graph.prune(threshold=0.6)
+print(f"Removed {pruned} weak edges")
+
+# Or prune by percentile
+pruned = graph.prune_percentile(0.2)  # Remove bottom 20%
+```
+
+### 6. Disable Features You Don't Need
+
+Turn off unused features for speed:
+
+```python
+config = {
+    "enable_deduplication": False,  # Skip similarity checks on insert
+    "compression_enabled": False,   # Skip compression (more memory, faster)
+    "index_refresh_interval": 0     # Manual index refresh
+}
+client = MembrainClient(config)
+```
+
+### 7. Use Appropriate Embedding Dimensions
+
+Smaller embeddings = faster operations:
+
+```python
+# High quality, slower
+client = MembrainClient({"embedding_dim": 1536})  # OpenAI ada-002
+
+# Balanced
+client = MembrainClient({"embedding_dim": 768})   # sentence-transformers large
+
+# Fast, good quality
+client = MembrainClient({"embedding_dim": 384})   # sentence-transformers base (default)
+
+# Very fast
+client = MembrainClient({"embedding_dim": 128})   # TinyBERT
+```
+
+### 8. Enable GPU Acceleration
+
+For CUDA-enabled systems:
+
+```python
+client = MembrainClient({"enable_gpu": True})
+```
+
+See [GPU Acceleration](/memscaledb/gpu-acceleration) for details.
+
+## Benchmarking
+
+<CodeGroup>
+```python Python
+import time
+from membrain import MembrainClient
+
+client = MembrainClient()
+
+# Benchmark insertions
+start = time.time()
+for i in range(1000):
+    client.store_fact(f"Fact number {i}", 0.9)
+duration = time.time() - start
+print(f"Insertions: {1000/duration:.0f} ops/sec")
+
+# Benchmark searches
+start = time.time()
+for i in range(100):
+    client.search(f"query {i}", limit=10)
+duration = time.time() - start
+print(f"Searches: {100/duration:.0f} ops/sec")
+
+client.close()
+```
+
+```javascript JavaScript
+import { MembrainClient } from 'membrain';
+
+const client = new MembrainClient();
+
+// Benchmark insertions
+let start = Date.now();
+for (let i = 0; i < 1000; i++) {
+    client.storeFact(`Fact number ${i}`, 0.9);
+}
+let duration = (Date.now() - start) / 1000;
+console.log(`Insertions: ${(1000/duration).toFixed(0)} ops/sec`);
+
+// Benchmark searches
+start = Date.now();
+for (let i = 0; i < 100; i++) {
+    client.search(`query ${i}`, 10);
+}
+duration = (Date.now() - start) / 1000;
+console.log(`Searches: ${(100/duration).toFixed(0)} ops/sec`);
+
+client.close();
+```
+</CodeGroup>
+
+## Performance Profiles
+
+<Tabs>
+  <Tab title="Throughput-Optimized">
+    Maximum operations per second:
+    ```python
+    config = {
+        "enable_deduplication": False,
+        "compression_enabled": False,
+        "batch_size": 1000,
+        "index_refresh_interval": 0,
+        "hnsw_m": 16,
+        "enable_gpu": True
+    }
+    ```
+  </Tab>
+
+  <Tab title="Latency-Optimized">
+    Minimum response time:
+    ```python
+    config = {
+        "embedding_dim": 128,
+        "hnsw_ef_search": 50,
+        "max_edges_per_node": 20,
+        "enable_gpu": True
+    }
+    ```
+  </Tab>
+
+  <Tab title="Quality-Optimized">
+    Best search accuracy:
+    ```python
+    config = {
+        "hnsw_m": 64,
+        "hnsw_ef_construction": 800,
+        "hnsw_ef_search": 400,
+        "similarity_threshold": 0.95,
+        "attention_threshold": 0.85
+    }
+    ```
+  </Tab>
+
+  <Tab title="Memory-Optimized">
+    Minimum memory footprint:
+    ```python
+    config = {
+        "compression_enabled": True,
+        "embedding_dim": 128,
+        "graph_embedding_dim": 8,
+        "max_edges_per_node": 15,
+        "max_memories": 50000
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Monitoring Performance
+
+Track key metrics:
+
+<CodeGroup>
+```python Python
+stats = client.get_stats()
+
+print(f"Total memories: {stats['total_memories']}")
+print(f"Memory usage: {stats['memory_bytes'] / 1024 / 1024:.2f} MB")
+print(f"Index size: {stats['index_size']}")
+print(f"Average search time: {stats['avg_search_ms']:.2f} ms")
+```
+
+```javascript JavaScript
+const stats = client.getStats();
+
+console.log(`Total memories: ${stats.totalMemories}`);
+console.log(`Memory usage: ${(stats.memoryBytes / 1024 / 1024).toFixed(2)} MB`);
+console.log(`Index size: ${stats.indexSize}`);
+console.log(`Average search time: ${stats.avgSearchMs.toFixed(2)} ms`);
+```
+</CodeGroup>
+
+## Troubleshooting Performance
+
+<AccordionGroup>
+  <Accordion title="Slow Insertions">
+    **Causes:**
+    - Deduplication enabled with large dataset
+    - Small batch size
+    - Frequent index refreshes
+
+    **Solutions:**
+    - Increase batch_size
+    - Disable deduplication for bulk loads
+    - Set index_refresh_interval to 0, refresh manually
+  </Accordion>
+
+  <Accordion title="Slow Searches">
+    **Causes:**
+    - Large dataset without proper indexing
+    - Low ef_search parameter
+    - CPU-bound distance computation
+
+    **Solutions:**
+    - Increase hnsw_ef_search
+    - Enable GPU acceleration
+    - Reduce embedding_dim
+    - Ensure HNSW index is built
+  </Accordion>
+
+  <Accordion title="High Memory Usage">
+    **Causes:**
+    - Large embedding dimensions
+    - Too many graph edges
+    - Disabled compression
+
+    **Solutions:**
+    - Enable compression
+    - Reduce embedding_dim
+    - Prune graph edges
+    - Set max_edges_per_node lower
+  </Accordion>
+
+  <Accordion title="Slow Graph Queries">
+    **Causes:**
+    - Too many hops
+    - Dense graph (many edges)
+    - Large branching factor
+
+    **Solutions:**
+    - Reduce max_hops
+    - Prune low-attention edges
+    - Increase attention_threshold
+    - Reduce max_edges_per_node
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GPU Acceleration" icon="microchip" href="/memscaledb/gpu-acceleration">
+    Enable CUDA for faster operations
+  </Card>
+  <Card title="Configuration" icon="gear" href="/advanced/configuration">
+    Detailed configuration options
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/advanced/architecture">
+    Understand system internals
+  </Card>
+</CardGroup>

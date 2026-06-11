@@ -1,0 +1,41 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all -- --check
+        language: system
+        files: \.rs$
+        pass_filenames: false
+
+      - id: ruff
+        name: ruff
+        entry: ruff check
+        language: system
+        files: ^membrain-py/.*\.py$
+        pass_filenames: true
+        stages: [pre-commit]
+
+      - id: tsc
+        name: tsc membrain-node
+        entry: bash -c 'cd membrain-node && npx tsc --noEmit'
+        language: system
+        files: ^membrain-node/.*\.ts$
+        pass_filenames: false
