@@ -1,6 +1,7 @@
 //! MemscaleDB storage backend with vector indexing and full-text search.
 
 use async_trait::async_trait;
+use memscaledb::VectorIndex;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
@@ -678,10 +679,35 @@ impl MemscaleDbStorage {
         if filter_meta.is_empty() {
             return Ok(None);
         }
-        self.storage
+
+        // Scan all records and match against MemoryRecord.metadata directly —
+        // no msgpack deserialization of the full content blob needed.
+        // This is O(n) in record count but avoids the O(n * deserialization)
+        // cost of the old approach.
+        let all_ids = self
+            .storage
             .metadata
-            .ids_matching_metadata(filter_meta)
-            .map_err(|e| Error::Storage(format!("Metadata pre-filter failed: {}", e)))
+            .all_ids()
+            .map_err(|e| Error::Storage(format!("Metadata pre-filter scan failed: {}", e)))?;
+
+        let mut matching = HashSet::new();
+        for uuid in all_ids {
+            if let Some(record) = self
+                .storage
+                .metadata
+                .get(&uuid)
+                .map_err(|e| Error::Storage(format!("Metadata pre-filter read failed: {}", e)))?
+            {
+                let all_match = filter_meta.iter().all(|(key, expected)| {
+                    record.metadata.get(key) == Some(expected)
+                });
+                if all_match {
+                    matching.insert(uuid);
+                }
+            }
+        }
+
+        Ok(Some(matching))
     }
 
     /// Check if a memory matches the given filters.

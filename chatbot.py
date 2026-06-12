@@ -89,25 +89,43 @@ def _run_graphbit_agent_streaming(
     workflow.add_node(node)
 
     chunks: list[str] = []
-    saw_token = False
+    node_output: str = ""
 
     for event in executor.execute_streaming(workflow, stream_mode="all"):
         event_type = event.get("event")
         node_name = event.get("node_name")
-        if event_type != "token" or node_name != name:
-            continue
 
-        token = event.get("content", "")
-        if not token:
-            continue
+        if event_type == "token" and node_name == name:
+            token = event.get("content", "")
+            if token:
+                chunks.append(token)
+                print(token, end="", flush=True)
 
-        saw_token = True
-        chunks.append(token)
-        print(token, end="", flush=True)
+        elif event_type == "node_completed" and node_name == name:
+            # Always capture node output as a reliable fallback for when
+            # token events are absent (e.g. cached responses, non-streaming
+            # model endpoints, or graphbit version differences).
+            node_output = event.get("output", "")
+
+        elif event_type == "node_failed" and node_name == name:
+            error = event.get("error", "unknown error")
+            raise RuntimeError(f"Node '{name}' failed: {error}")
+
+        elif event_type == "workflow_failed":
+            error = event.get("error", "unknown error")
+            raise RuntimeError(f"Workflow failed: {error}")
 
     response_text = "".join(chunks).strip()
-    if not saw_token or not response_text:
+
+    # If token streaming produced nothing, fall back to the node_completed output.
+    if not response_text:
+        response_text = node_output.strip()
+        if response_text:
+            print(response_text, end="", flush=True)
+
+    if not response_text:
         raise RuntimeError(f"Workflow streaming produced no output for node '{name}'")
+
     return response_text
 
 

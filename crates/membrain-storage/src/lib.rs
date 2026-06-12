@@ -43,8 +43,7 @@ pub async fn create_storage(
     match config.backend.as_str() {
         "memscaledb" => {
             let path = config.path.as_deref().unwrap_or("memscaledb");
-            let memscale_config = memscaledb::MemscaleStorageConfig::new(path)
-                .with_indexed_metadata_keys(config.indexed_metadata_keys.clone());
+            let memscale_config = memscaledb::MemscaleStorageConfig::new(path);
             if let Some(retrieval) = retrieval_config {
                 let storage =
                     MemscaleDbStorage::with_retrieval_config(memscale_config, dimension, retrieval)

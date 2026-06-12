@@ -35,7 +35,7 @@ membrain-multi-agent = { path = "crates/membrain-multi-agent" }
 membrain-graph = { path = "crates/membrain-graph" }
 membrain-conflict = { path = "crates/membrain-conflict" }
 membrain-ffi = { path = "crates/membrain-ffi" }
-memscaledb = { package = "memscaledb-core", git = "https://github.com/YOUR_USERNAME/tmemscaledb", branch = "main" }
+memscaledb = { package = "memscaledb-core", git = "ssh://git@github.com/annur-infinitibit/tmemscaledb", branch = "main" }
 membrain-test-utils = { path = "crates/membrain-test-utils" }
 
 # Async runtime

@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::os::raw::c_char;
 use std::sync::RwLock;
 
-use memscaledb::storage::metadata::canonicalize_metadata_value;
 use memscaledb::{HnswIndex, VectorId, VectorIndex};
 
 use super::{
@@ -244,10 +243,6 @@ pub unsafe extern "C" fn memscale_hnsw_scoped_search(
         let search_outcome = match filter_map {
             None => handle.inner.search(&query, k as usize),
             Some(filter) => {
-                let canonical_filter: HashMap<String, Vec<u8>> = filter
-                    .iter()
-                    .map(|(k, v)| (k.clone(), canonicalize_metadata_value(v)))
-                    .collect();
                 let metadata_guard = match handle.metadata.read() {
                     Ok(g) => g,
                     Err(e) => {
@@ -261,10 +256,8 @@ pub unsafe extern "C" fn memscale_hnsw_scoped_search(
                     else {
                         return false;
                     };
-                    canonical_filter.iter().all(|(key, expected)| {
-                        vector_meta
-                            .get(key)
-                            .is_some_and(|actual| canonicalize_metadata_value(actual) == *expected)
+                    filter.iter().all(|(key, expected)| {
+                        vector_meta.get(key).is_some_and(|actual| actual == expected)
                     })
                 };
                 handle.inner.search_with_filter(&query, k as usize, &passes)

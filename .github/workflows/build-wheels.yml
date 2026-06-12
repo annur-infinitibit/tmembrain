@@ -1,0 +1,87 @@
+name: Build Python Wheels
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --strip
+          working-directory: membrain-py
+          sccache: 'true'
+          manylinux: auto
+          # Rewrite SSH git URLs to HTTPS inside the manylinux container so cargo
+          # can fetch the memscaledb private dep without SSH keys or socket forwarding.
+          before-script-linux: |
+            git config --global url."https://x-access-token:${MEMSCALEDB_READ_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
+          docker-options: -e MEMSCALEDB_READ_TOKEN=${{ secrets.MEMSCALEDB_READ_TOKEN }}
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.target }}
+          path: membrain-py/dist
+
+  windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target: [x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.MEMSCALEDB_READ_TOKEN }}@github.com/".insteadOf "ssh://git@github.com/"
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --strip
+          working-directory: membrain-py
+          sccache: 'true'
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.target }}
+          path: membrain-py/dist
+
+  macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.MEMSCALEDB_READ_TOKEN }}@github.com/".insteadOf "ssh://git@github.com/"
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --strip
+          working-directory: membrain-py
+          sccache: 'true'
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.target }}
+          path: membrain-py/dist
