@@ -1,4 +1,4 @@
-name: Python Wheels
+name: Publish to DevPI
 
 on:
   push:

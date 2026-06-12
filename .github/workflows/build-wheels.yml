@@ -1,18 +1,19 @@
 name: Build Python Wheels
 
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
-  pull_request:
   workflow_dispatch:
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        target: [x86_64, aarch64]
+        include:
+          - target: x86_64
+            runs-on: ubuntu-latest
+          - target: aarch64
+            runs-on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,8 +25,6 @@ jobs:
           working-directory: membrain-py
           sccache: 'true'
           manylinux: auto
-          # Rewrite SSH git URLs to HTTPS inside the manylinux container so cargo
-          # can fetch the memscaledb private dep without SSH keys or socket forwarding.
           before-script-linux: |
             git config --global url."https://x-access-token:${MEMSCALEDB_READ_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
           docker-options: -e MEMSCALEDB_READ_TOKEN=${{ secrets.MEMSCALEDB_READ_TOKEN }}
